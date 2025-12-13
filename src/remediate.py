@@ -2,36 +2,35 @@ import boto3
 import json
 import logging
 
-# Setup simple logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 def lambda_handler(event, context):
     """
-    Triggered by EventBridge when an S3 Bucket creation or modification event occurs.
+    Remediates a vulnerable S3 bucket.
+    Handles inputs from both EventBridge (Raw) and Step Functions (Cooked).
     """
-    # 1. Log the incoming event for debugging
     logger.info("Received event: " + json.dumps(event))
 
-    # 2. Extract the bucket name from the CloudTrail event
-    # The structure depends on the event type, but usually it's here:
+    # 1. diverse Input Handling
+    # Option A: Direct from Step Functions (Validator Output)
+    bucket_name = event.get("bucket_name")
+    
+    # Option B: Direct from EventBridge (if used standalone)
+    if not bucket_name:
+        bucket_name = event.get("detail", {}).get("requestParameters", {}).get("bucketName")
+
+    if not bucket_name:
+        logger.error("No bucket name found. Exiting.")
+        return {"status": "Failed", "reason": "No bucket name provided"}
+
+    logger.info(f"Targeting bucket: {bucket_name}")
+
+    # 2. Remediate
+    s3 = boto3.client("s3")
+    
     try:
-        detail = event.get("detail", {})
-        request_parameters = detail.get("requestParameters", {})
-        bucket_name = request_parameters.get("bucketName")
-        
-        if not bucket_name:
-            logger.warning("No bucket name found in event parameters.")
-            return
-
-        logger.info(f"Detected change in bucket: {bucket_name}")
-
-        # 3. Remediate: Force Block Public Access
-        s3 = boto3.client("s3")
-        
-        logger.info(f"Applying Public Access Block to {bucket_name}...")
-        
-        response = s3.put_public_access_block(
+        s3.put_public_access_block(
             Bucket=bucket_name,
             PublicAccessBlockConfiguration={
                 'BlockPublicAcls': True,
@@ -40,10 +39,13 @@ def lambda_handler(event, context):
                 'RestrictPublicBuckets': True
             }
         )
-        
-        logger.info(f"SUCCESS: Remediation applied to {bucket_name}.")
-        return response
+        logger.info(f"SUCCESS: Locked down {bucket_name}")
+        return {
+            "status": "Success", 
+            "bucket_name": bucket_name, 
+            "action": "BlockPublicAccess"
+        }
 
     except Exception as e:
-        logger.error(f"Error remediating bucket: {str(e)}")
+        logger.error(f"Failed to remediate: {str(e)}")
         raise e
