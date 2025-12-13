@@ -112,3 +112,40 @@
     * **Verification:** Confirmed via AWS Console S3 Permissions tab.
 * **Status:** The "Vertical Slice" (Detect -> Remediate) is functional. Phase 2 Complete.
 
+### Task 3.1 & 3.2: Enterprise Orchestration (Step Functions)
+* **Objective:** Move from simple "Trigger -> Action" to a managed workflow with validation logic ("Trigger -> Validate -> Decide -> Action").
+* **Action:** Created `src/validate.py` to inspect S3 bucket policies before remediation.
+* **Infrastructure:** Defined `step_function.tf` to provision:
+    * **State Machine:** `CloudAuditZero-Workflow` with visual logic flow (`ValidateBucket` -> `IsBucketPublic?` -> `RemediateBucket`).
+    * **IAM Roles:** Granted Step Functions permission to invoke the Validator and Remediator Lambdas.
+* **Refactoring:** Updated `eventbridge.tf` to point the trigger target to the State Machine ARN instead of the Lambda ARN.
+
+### Troubleshooting: Python Version Compatibility
+* **Issue:** The Validator Lambda failed with `AttributeError: ... object has no attribute 'NoSuchPublicAccessBlockConfiguration'`.
+* **Root Cause:** The specific `boto3` version in the AWS Lambda runtime does not expose this specific exception class as a direct attribute.
+* **Resolution:** Refactored `src/validate.py` to use the standard `botocore.exceptions.ClientError` pattern and filtered by `e.response['Error']['Code']`.
+* **Result:** Re-deployed via Terraform. Manual execution in the AWS Console confirmed the workflow now successfully handles both secure and insecure buckets.
+
+### Task 3.3: Audit Logging & Data Persistence
+* **Objective:** Ensure all remediation actions are permanently recorded for compliance auditing, fulfilling the "Audit" requirement of the project name.
+* **Infrastructure:**
+    * **DynamoDB:** Added `aws_dynamodb_table` resource (`cloud-audit-zero-logs`).
+    * **Cost Optimization:** Explicitly configured `billing_mode = "PROVISIONED"` with `read_capacity=1` and `write_capacity=1`. This strictly adheres to the AWS Free Tier "Always Free" allowance (25 RCU/WCU), whereas On-Demand mode could theoretically incur micro-charges.
+* **Orchestration Update:**
+    * Refactored `step_function.tf` to include a direct service integration with DynamoDB.
+    * Added `LogRemediation` state to the workflow JSON, configured to insert an item containing the `ExecutionID`, `Timestamp`, and `BucketName` upon successful remediation.
+    * Updated IAM Policy to grant `dynamodb:PutItem` permissions to the Step Function role.
+* **Result:** Full closed-loop automation achieved: Event -> Validate -> Remediate -> Log.
+
+### Troubleshooting: Integration Logic Mismatch
+* **Observation:** The `RemediateBucket` step in the workflow turned green (Success), but the S3 bucket remained vulnerable (Public Access Block was `false`). The Lambda output was `null`.
+* **Root Cause:** Input Schema Mismatch.
+    * The `remediate.py` Lambda was written to expect the deep nested JSON structure from a raw EventBridge event.
+    * However, the Step Function passes the *output* of the previous step (Validator), which is a flat JSON object: `{"is_public": true, "bucket_name": "..."}`.
+    * The Lambda couldn't find the bucket name and exited silently without error.
+* **Resolution:** Refactored `src/remediate.py` to robustly handle both input formats (Direct EventBridge vs. Step Functions).
+* **Verification:**
+    * Re-deployed via Terraform.
+    * Re-executed the State Machine.
+    * **CLI Verification:** Ran `aws s3api get-public-access-block --bucket cloud-audit-zero-honeypot-[id]`.
+    * **Result:** Confirmed `BlockPublicAcls: true`, proving the remediation logic executed successfully.
