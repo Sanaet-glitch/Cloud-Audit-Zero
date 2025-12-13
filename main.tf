@@ -42,3 +42,21 @@ provider "aws" {
     }
   }
 }
+
+################################################################################
+# Audit Log Database
+################################################################################
+
+resource "aws_dynamodb_table" "audit_log" {
+  name           = "cloud-audit-zero-logs"
+  # Switch to PROVISIONED to strictly align with the "Always Free" tier (25 RCU/WCU limit)
+  billing_mode   = "PROVISIONED"
+  read_capacity  = 1
+  write_capacity = 1
+  hash_key       = "RequestId"
+
+  attribute {
+    name = "RequestId"
+    type = "S"
+  }
+}
