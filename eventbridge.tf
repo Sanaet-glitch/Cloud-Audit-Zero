@@ -4,7 +4,7 @@
 
 resource "aws_cloudwatch_event_rule" "s3_detection" {
   name        = "cloud-audit-zero-s3-guard"
-  description = "Triggers when an S3 bucket is created or its Public Access Block is deleted"
+  description = "Triggers Step Function when an S3 bucket is compromised"
 
   # The "Event Pattern" - This is the filter
   event_pattern = jsonencode({
@@ -23,24 +23,53 @@ resource "aws_cloudwatch_event_rule" "s3_detection" {
 }
 
 ################################################################################
-# Target: Connect the Rule to the Lambda
+# IAM Role for EventBridge
+# (EventBridge needs permission to "StartExecution" of the workflow)
 ################################################################################
 
-resource "aws_cloudwatch_event_target" "trigger_lambda" {
-  rule      = aws_cloudwatch_event_rule.s3_detection.name
-  target_id = "SendToRemediator"
-  arn       = aws_lambda_function.remediator.arn
+resource "aws_iam_role" "eventbridge_role" {
+  name = "cloud-audit-zero-eb-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "events.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_policy" "eb_policy" {
+  name        = "cloud-audit-zero-eb-policy"
+  description = "Allows EventBridge to start the specific Step Function"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "states:StartExecution"
+        Resource = aws_sfn_state_machine.sfn_workflow.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "attach_eb" {
+  role       = aws_iam_role.eventbridge_role.name
+  policy_arn = aws_iam_policy.eb_policy.arn
 }
 
 ################################################################################
-# Permissions: Allow EventBridge to actually call the Lambda
-# (Common newbie mistake: forgetting this resource!)
+# Target: Connect EventBridge to Step Functions
 ################################################################################
 
-resource "aws_lambda_permission" "allow_eventbridge" {
-  statement_id  = "AllowExecutionFromEventBridge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.remediator.function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.s3_detection.arn
+resource "aws_cloudwatch_event_target" "trigger_sfn" {
+  rule      = aws_cloudwatch_event_rule.s3_detection.name
+  target_id = "TriggerStepFunction"
+  arn       = aws_sfn_state_machine.sfn_workflow.arn
+  role_arn  = aws_iam_role.eventbridge_role.arn
 }
