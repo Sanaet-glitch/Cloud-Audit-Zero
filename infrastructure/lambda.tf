@@ -14,6 +14,12 @@ data "archive_file" "validate_zip" {
   output_path = "${path.module}/../src/validate.zip"
 }
 
+data "archive_file" "get_logs_zip" {
+  type        = "zip"
+  source_file = "${path.module}/../src/get_logs.py"
+  output_path = "${path.module}/../src/get_logs.zip"
+}
+
 ################################################################################
 # LAMBDA FUNCTIONS
 ################################################################################
@@ -24,7 +30,7 @@ resource "aws_lambda_function" "remediator" {
   function_name    = "cloud-audit-zero-remediator"
   role             = aws_iam_role.lambda_role.arn
   handler          = "remediate.lambda_handler"
-  runtime          = "python3.9"
+  runtime          = "python3.12"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
   timeout          = 10
 }
@@ -35,9 +41,19 @@ resource "aws_lambda_function" "validator" {
   function_name    = "cloud-audit-zero-validator"
   role             = aws_iam_role.lambda_role.arn
   handler          = "validate.lambda_handler"
-  runtime          = "python3.9"
+  runtime          = "python3.12"
   source_code_hash = data.archive_file.validate_zip.output_base64sha256
   timeout          = 10
+}
+
+resource "aws_lambda_function" "get_logs" {
+  filename         = data.archive_file.get_logs_zip.output_path
+  function_name    = "cloud-audit-zero-get-logs"
+  role            = aws_iam_role.lambda_role.arn
+  handler         = "get_logs.lambda_handler"
+  runtime         = "python3.12"  # Using 3.12 consistent with your environment
+  source_code_hash = data.archive_file.get_logs_zip.output_base64sha256
+  timeout         = 10
 }
 
 ################################################################################
@@ -95,6 +111,14 @@ resource "aws_iam_policy" "remediate_policy" {
         ]
         Effect   = "Allow"
         Resource = "arn:aws:s3:::*"
+      },
+      {
+        # Allow Writing to the Cloud-Audit-Zero Database
+        Action = [
+          "dynamodb:PutItem"
+        ]
+        Effect   = "Allow"
+        Resource = aws_dynamodb_table.audit_logs.arn
       }
     ]
   })
@@ -104,4 +128,10 @@ resource "aws_iam_policy" "remediate_policy" {
 resource "aws_iam_role_policy_attachment" "attach_remediate" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = aws_iam_policy.remediate_policy.arn
+}
+
+# 4. Attach DynamoDB Read Only (Specifically for get_logs)
+resource "aws_iam_role_policy_attachment" "attach_dynamo_read" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"
 }
