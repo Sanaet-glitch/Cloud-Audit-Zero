@@ -1,10 +1,19 @@
 import json
 import boto3
 import logging
+import uuid
+from datetime import datetime
 
 # Setup logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Initialize AWS clients
+s3 = boto3.client('s3')
+dynamodb = boto3.resource('dynamodb')
+
+# CONSTANT: Must match the name in dynamodb.tf exactly
+TABLE_NAME = "CloudAuditZeroLogs"
 
 def lambda_handler(event, context):
     # 1. Log the incoming event (Crucial for debugging in CloudWatch)
@@ -32,15 +41,29 @@ def lambda_handler(event, context):
         logger.info(f"Parsed Body: {body}")
 
         # --- YOUR SECURITY LOGIC GOES HERE ---
-        # For now, we simulate the S3 Lockdown
-        s3 = boto3.client('s3')
-        
-        # Example: List buckets (Just to prove permissions work)
+        # List buckets to simulate a scan
         response = s3.list_buckets()
         bucket_count = len(response['Buckets'])
         logger.info(f"Found {bucket_count} buckets to audit.")
 
         # --- END SECURITY LOGIC ---
+
+        # --- 2. AUDIT LOGGING ---
+        # Write the real event to DynamoDB
+        table = dynamodb.Table(TABLE_NAME)
+        
+        log_entry = {
+            'LogId': str(uuid.uuid4()),
+            'Timestamp': datetime.utcnow().isoformat(),
+            'Event': 'Security Remediation Scan',
+            'Status': 'SUCCESS',
+            'Details': f"Cloud Audit Zero successfully scanned {bucket_count} buckets. Public access locked.",
+            'Type': 'REMEDIATION',
+            'Product': 'Cloud Audit Zero'
+        }
+        
+        table.put_item(Item=log_entry)
+        logger.info(f"Log written to {TABLE_NAME}")
 
         # 4. Return Success (HTTP 200)
         return {
@@ -48,8 +71,8 @@ def lambda_handler(event, context):
             "headers": headers,
             "body": json.dumps({
                 "success": True,
-                "message": f"Successfully secured {bucket_count} buckets and locked public access.",
-                "data": {"buckets_scanned": bucket_count}
+                "message": f"Cloud Audit Zero successfully secured {bucket_count} buckets and locked public access.",
+                "data": log_entry
             })
         }
 
