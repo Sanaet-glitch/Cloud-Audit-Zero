@@ -4,7 +4,7 @@ import sys
 import json
 
 # --- CONFIGURATION ---
-# REPLACE THIS with your actual honeypot bucket name from 'terraform output'
+# REPLACE THIS with your actual bucket name and region from 'terraform output'
 BUCKET_NAME = "cloud-audit-zero-honeypot-bu4dc8" 
 REGION = "us-east-1"
 # ---------------------
