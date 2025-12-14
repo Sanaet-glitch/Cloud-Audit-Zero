@@ -85,6 +85,7 @@ This project includes dedicated scripts to verify functional integrity and stric
 Run this script to scan your environment. It ensures all resources (Lambda, DynamoDB, Logs, S3, Dashboards) are configured strictly within AWS Free Tier limits.
 ```bash
 python3 tests/cost_audit.py
+```
 
 ---
 
