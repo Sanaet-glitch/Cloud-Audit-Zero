@@ -12,7 +12,7 @@ Unlike basic scripts, this project uses **AWS Step Functions** to orchestrate a 
 ---
 
 ## 🏗️ Architecture
-[Insert your Mermaid Diagram or a screenshot of the Step Functions Graph here]
+![alt text](Architecture-Diagram.png)
 
 The system operates on a **Serverless First** principle:
 1.  **Trigger:** CloudTrail captures infrastructure changes (e.g., `CreateBucket`).
@@ -44,7 +44,7 @@ The system operates on a **Serverless First** principle:
 ### Quick Start
 1.  **Clone the Repository**
     ```bash
-    git clone [https://github.com/YOUR_USERNAME/Cloud-Audit-Zero.git](https://github.com/YOUR_USERNAME/Cloud-Audit-Zero.git)
+    git clone https://github.com/Sanaet-glitch/Cloud-Audit-Zero.git
     cd Cloud-Audit-Zero
     ```
 
@@ -55,6 +55,7 @@ The system operates on a **Serverless First** principle:
 
 3.  **Deploy Infrastructure**
     ```bash
+    terraform plan
     terraform apply -auto-approve
     ```
 
