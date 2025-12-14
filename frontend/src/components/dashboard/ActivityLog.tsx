@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Activity, User, Database, Shield, AlertCircle, CheckCircle } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -10,6 +11,18 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
+// 1. The Shape of the Real Data from AWS
+interface DynamoDBLog {
+  LogId: string;
+  Timestamp: string;
+  Event: string;
+  Status: string;
+  Details: string;
+  Type: string;
+  Product?: string;
+}
+
+// 2. The Shape your UI expects (We map to this)
 interface LogEntry {
   id: string;
   timestamp: string;
@@ -19,56 +32,37 @@ interface LogEntry {
   resource: string;
 }
 
-const mockLogs: LogEntry[] = [
-  {
-    id: "1",
-    timestamp: "2024-01-15 14:32:08",
-    event: "User 'admin' logged in from 192.168.1.1",
-    type: "info",
-    user: "admin",
-    resource: "Auth Service",
-  },
-  {
-    id: "2",
-    timestamp: "2024-01-15 14:28:45",
-    event: "S3 Bucket 'confidential-docs' accessed",
-    type: "warning",
-    user: "system",
-    resource: "S3 Storage",
-  },
-  {
-    id: "3",
-    timestamp: "2024-01-15 14:25:12",
-    event: "RDS backup completed successfully",
-    type: "success",
-    user: "system",
-    resource: "RDS Database",
-  },
-  {
-    id: "4",
-    timestamp: "2024-01-15 14:20:33",
-    event: "Failed login attempt detected",
-    type: "error",
-    user: "unknown",
-    resource: "Auth Service",
-  },
-  {
-    id: "5",
-    timestamp: "2024-01-15 14:15:00",
-    event: "Security scan initiated",
-    type: "info",
-    user: "admin",
-    resource: "Security Scanner",
-  },
-  {
-    id: "6",
-    timestamp: "2024-01-15 14:10:22",
-    event: "IAM policy updated for 'dev-team' role",
-    type: "success",
-    user: "admin",
-    resource: "IAM",
-  },
-];
+// 3. The Data Fetcher & Adapter
+const fetchLogs = async (): Promise<LogEntry[]> => {
+  const apiUrl = import.meta.env.VITE_API_URL;
+  const response = await fetch(`${apiUrl}/logs`);
+  
+  if (!response.ok) {
+    throw new Error("Failed to fetch logs");
+  }
+
+  const json = await response.json();
+  const rawData: DynamoDBLog[] = json.data || [];
+
+  // Transform DynamoDB data to match your exact UI components
+  return rawData.map((log) => {
+    // Convert AWS Status to UI Badge variants
+    let uiType: LogEntry["type"] = "info";
+    if (log.Status === "SUCCESS") uiType = "success";
+    else if (log.Status === "ERROR") uiType = "error";
+    else if (log.Status === "WARNING") uiType = "warning";
+
+    return {
+      id: log.LogId,
+      // Format the ISO date to look like your mock data (e.g., 1/15/2024, 2:30 PM)
+      timestamp: new Date(log.Timestamp).toLocaleString(),
+      event: log.Details, // Use the detailed message for the event column
+      type: uiType,
+      user: "system", // Default to system since these are automated Lambda actions
+      resource: "S3 Storage", // Default to S3 since that's our main focus right now
+    };
+  });
+};
 
 const getTypeIcon = (type: LogEntry["type"]) => {
   switch (type) {
@@ -106,6 +100,13 @@ const getResourceIcon = (resource: string) => {
 };
 
 const ActivityLog = () => {
+  // 4. The Live Hook
+  const { data: logs, isLoading, isError } = useQuery({
+    queryKey: ["activity-logs"],
+    queryFn: fetchLogs,
+    refetchInterval: 5000, // Auto-refresh every 5 seconds
+  });
+
   return (
     <Card className="border-border">
       <CardHeader className="pb-4">
@@ -122,7 +123,7 @@ const ActivityLog = () => {
             </div>
           </div>
           <Badge variant="outline" className="font-mono text-xs border-border">
-            {mockLogs.length} events
+            {logs?.length || 0} events
           </Badge>
         </div>
       </CardHeader>
@@ -147,7 +148,35 @@ const ActivityLog = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockLogs.map((log) => (
+              {/* LOADING STATE */}
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={4} className="h-24 text-center text-muted-foreground font-mono text-xs">
+                    Connecting to secure stream...
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {/* ERROR STATE */}
+              {isError && (
+                <TableRow>
+                  <TableCell colSpan={4} className="h-24 text-center text-destructive font-mono text-xs">
+                    Connection failed. Retrying...
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {/* EMPTY STATE */}
+              {!isLoading && !isError && logs?.length === 0 && (
+                 <TableRow>
+                 <TableCell colSpan={4} className="h-24 text-center text-muted-foreground font-mono text-xs">
+                   No security events detected.
+                 </TableCell>
+               </TableRow>
+              )}
+
+              {/* REAL DATA MAPPED TO UI */}
+              {logs?.map((log) => (
                 <TableRow key={log.id} className="hover:bg-muted/30 transition-colors">
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     {log.timestamp}
