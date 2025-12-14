@@ -5,7 +5,7 @@
 
 # 1. Random Suffix to ensure global uniqueness for the bucket name
 resource "random_string" "suffix" {
-  length  = 6
+  length  = 8
   special = false
   upper   = false
 }
@@ -17,11 +17,15 @@ resource "aws_s3_bucket" "honeypot" {
   # Force destroy allows us to delete the bucket even if it has files in it
   # (Useful for development/testing projects like this)
   force_destroy = true
+
+  tags = {
+    Name        = "Honeypot Trap"
+    Description = "DO NOT USE - Security Decoy"
+  }
 }
 
 # 3. Security Controls (Public Access Block)
-# INITIALLY SECURE: We block all public access by default.
-# We will manually disable these settings later to simulate an attack/mistake.
+# We block all public access by default.
 resource "aws_s3_bucket_public_access_block" "honeypot" {
   bucket = aws_s3_bucket.honeypot.id
 
