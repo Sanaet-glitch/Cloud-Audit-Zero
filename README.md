@@ -21,6 +21,7 @@ The system operates on a **Serverless First** principle:
 4.  **Validator:** A Python Lambda checks if the resource is *actually* vulnerable.
 5.  **Remediator:** A separate Python Lambda applies the fix (e.g., `BlockPublicAccess`).
 6.  **Audit:** The action is permanently logged to **DynamoDB** for compliance.
+7.  **Visualize:** A **CloudWatch Dashboard** provides a single pane of glass for metrics and health.
 
 ---
 
@@ -30,6 +31,7 @@ The system operates on a **Serverless First** principle:
 * **Compute:** AWS Lambda (Python 3.9)
 * **Database:** Amazon DynamoDB (Provisioned 1 RCU/WCU)
 * **Event Bus:** Amazon EventBridge
+* **Visibility:** Amazon CloudWatch Dashboards
 * **Dev Environment:** Ona (Gitpod) / Docker
 
 ---
@@ -40,12 +42,21 @@ The system operates on a **Serverless First** principle:
 * An AWS Account (Free Tier recommended)
 * Terraform installed
 * AWS CLI configured
+* Python 3.9+
 
 ### Quick Start
 1.  **Clone the Repository**
     ```bash
     git clone https://github.com/Sanaet-glitch/Cloud-Audit-Zero.git
     cd Cloud-Audit-Zero
+    ```
+
+2.  **Setup Python Environment**
+    This project uses a virtual environment to manage dependencies safely.
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
     ```
 
 2.  **Initialize Terraform**
@@ -66,6 +77,14 @@ The system operates on a **Serverless First** principle:
     * Wait for the system to detect the change (approx. 5-15 mins due to CloudTrail latency).
     * Refresh the page to see the setting automatically reverted to **On**.
     * Check DynamoDB (`cloud-audit-zero-logs`) for the audit record.
+
+## ✅ Advanced Verification & Cost Safety
+This project includes dedicated scripts to verify functional integrity and strict cost compliance.
+
+### 1. The "Zero Cost" Audit 💰
+Run this script to scan your environment. It ensures all resources (Lambda, DynamoDB, Logs, S3, Dashboards) are configured strictly within AWS Free Tier limits.
+```bash
+python3 tests/cost_audit.py
 
 ---
 
