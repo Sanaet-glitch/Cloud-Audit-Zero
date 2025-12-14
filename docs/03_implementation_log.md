@@ -149,3 +149,37 @@
     * Re-executed the State Machine.
     * **CLI Verification:** Ran `aws s3api get-public-access-block --bucket cloud-audit-zero-honeypot-[id]`.
     * **Result:** Confirmed `BlockPublicAcls: true`, proving the remediation logic executed successfully.
+
+### Task 4.1: Automated Integration Testing
+* **Objective:** Verify the entire security loop programmatically without manual console interaction.
+* **Action:** Developed `tests/integration_test.py` using `boto3`.
+    * **Attack:** Script uses `s3.delete_public_access_block` to expose the honeypot.
+    * **Trigger:** Script invokes `sfn.start_execution` to bypass CloudTrail latency for immediate feedback.
+    * **Verify:** Script polls `s3.get_public_access_block` to confirm remediation and scans `dynamodb` to confirm logging.
+* **Result:** Test passed successfully (`Exit Code 0`), confirming the platform is self-healing.
+
+### Task 4.2: Automated Integration Testing
+* **Action:** Created `requirements.txt` to manage local Python dependencies (specifically `boto3`).
+* **Installation:** Ran `pip install -r requirements.txt` to prepare the test environment.
+* **Test Execution:** Ran `python3 tests/integration_test.py`.
+    * **Attack:** Script used `s3.delete_public_access_block` to expose the honeypot.
+    * **Trigger:** Script invoked `sfn.start_execution` to bypass CloudTrail latency.
+    * **Verify:** Script confirmed remediation via `s3.get_public_access_block` and logging via `dynamodb.scan`.
+* **Result:** Test passed successfully, confirming the platform is self-healing.
+
+### Troubleshooting: Python PEP 668 (Externally Managed Environment)
+* **Issue:** `pip install` failed with `error: externally-managed-environment`.
+* **Context:** Modern Linux distributions (Debian 12/Ubuntu 24.04) enforce PEP 668 to prevent `pip` from modifying the system-wide Python environment, which could break OS tools.
+* **Resolution:** Adhered to best practices by creating a local virtual environment:
+    1.  `python3 -m venv venv`
+    2.  `source venv/bin/activate`
+    3.  `pip install -r requirements.txt`
+* **Result:** Dependencies installed securely in isolation. Integration test executed successfully.
+
+### Verification: The "Human Speed" Test
+* **Skepticism:** During the automated test, the AWS Console UI did not update fast enough to visually show the bucket entering the "Vulnerable" state before it was fixed.
+* **Investigation:** The remediation workflow executes in <5 seconds, which is faster than the Console's refresh rate or human reaction time.
+* **Validation:** Modified the integration test to inject a `time.sleep(60)` delay between the attack and the trigger.
+    * **Visual Proof:** Verified in the AWS Console that "Block Public Access" was indeed **OFF** during the delay.
+    * **Healing:** Confirmed that once the script resumed, the bucket was immediately locked down.
+* **Conclusion:** The project is fully functional. "Cloud-Audit-Zero" successfully detects, verifies, remediates, and logs security incidents faster than a human operator could respond.
