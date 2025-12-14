@@ -183,3 +183,22 @@
     * **Visual Proof:** Verified in the AWS Console that "Block Public Access" was indeed **OFF** during the delay.
     * **Healing:** Confirmed that once the script resumed, the bucket was immediately locked down.
 * **Conclusion:** The project is fully functional. "Cloud-Audit-Zero" successfully detects, verifies, remediates, and logs security incidents faster than a human operator could respond.
+
+### Task 4.3: Cost Compliance Audit & Drift Detection
+* **Action:** Developed `tests/cost_audit.py` to scan all project resources against AWS Free Tier limits (DynamoDB capacity, Lambda memory, Log retention).
+* **Audit Finding:** The script flagged that CloudWatch Log Groups had "No Retention Set" (Infinite storage risk).
+* **Root Cause:** The Log Groups were auto-created by the Lambda service execution, meaning they were unmanaged "orphaned" resources outside of Terraform's state.
+* **Resolution:** * Defined `aws_cloudwatch_log_group` resources in `logging.tf` with `retention_in_days = 14`.
+    * Performed `terraform import` to bring the existing log groups under IaC management without downtime.
+    * Applied changes to enforce the retention policy.
+* **Result:** Re-ran audit script. **Result: 100% Clean / Zero Cost Risks.**
+
+### Task 4.4: Operational Visibility (Dashboarding)
+* **Objective:** Provide a "Single Pane of Glass" to monitor the security posture and system health without digging into logs.
+* **Pre-Deployment Check:** Ran `tests/cost_audit.py` to verify current dashboard count (0) was under the Free Tier limit (3).
+* **Action:** Defined `aws_cloudwatch_dashboard` in `dashboard.tf`.
+* **Metrics Tracked:**
+    1.  **Detection Rate:** EventBridge Rule invocations (How many threats detected?)
+    2.  **Remediation Rate:** Lambda invocations (How many threats neutralized?)
+    3.  **System Health:** Lambda Error rates (Is the logic failing?)
+* **Result:** Dashboard successfully deployed. Visual verification confirmed correlation between attacks (Test Script) and Remediations.
