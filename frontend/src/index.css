@@ -1,0 +1,183 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+/* Cloud Audit Zero - Cybersecurity Dashboard Design System */
+
+@layer base {
+  :root {
+    --background: 222 47% 4%;
+    --foreground: 210 40% 92%;
+
+    --card: 217 33% 8%;
+    --card-foreground: 210 40% 92%;
+
+    --popover: 217 33% 8%;
+    --popover-foreground: 210 40% 92%;
+
+    --primary: 160 84% 39%;
+    --primary-foreground: 222 47% 4%;
+
+    --secondary: 217 33% 14%;
+    --secondary-foreground: 210 40% 92%;
+
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 160 60% 45%;
+    --accent-foreground: 222 47% 4%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 4%;
+
+    --success: 160 84% 39%;
+    --success-foreground: 222 47% 4%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 160 84% 39%;
+
+    --radius: 0.5rem;
+
+    --glow-primary: 0 0 20px hsl(160 84% 39% / 0.3);
+    --glow-warning: 0 0 20px hsl(38 92% 50% / 0.3);
+    --glow-success: 0 0 25px hsl(160 84% 39% / 0.4);
+
+    --sidebar-background: 217 33% 6%;
+    --sidebar-foreground: 210 40% 92%;
+    --sidebar-primary: 160 84% 39%;
+    --sidebar-primary-foreground: 222 47% 4%;
+    --sidebar-accent: 217 33% 14%;
+    --sidebar-accent-foreground: 210 40% 92%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 160 84% 39%;
+  }
+
+  .dark {
+    --background: 222 47% 4%;
+    --foreground: 210 40% 92%;
+
+    --card: 217 33% 8%;
+    --card-foreground: 210 40% 92%;
+
+    --popover: 217 33% 8%;
+    --popover-foreground: 210 40% 92%;
+
+    --primary: 160 84% 39%;
+    --primary-foreground: 222 47% 4%;
+
+    --secondary: 217 33% 14%;
+    --secondary-foreground: 210 40% 92%;
+
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent: 160 60% 45%;
+    --accent-foreground: 222 47% 4%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 47% 4%;
+
+    --success: 160 84% 39%;
+    --success-foreground: 222 47% 4%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 160 84% 39%;
+
+    --sidebar-background: 217 33% 6%;
+    --sidebar-foreground: 210 40% 92%;
+    --sidebar-primary: 160 84% 39%;
+    --sidebar-primary-foreground: 222 47% 4%;
+    --sidebar-accent: 217 33% 14%;
+    --sidebar-accent-foreground: 210 40% 92%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 160 84% 39%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer utilities {
+  .glow-primary {
+    box-shadow: var(--glow-primary);
+  }
+
+  .glow-warning {
+    box-shadow: var(--glow-warning);
+  }
+
+  .glow-success {
+    box-shadow: var(--glow-success);
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent;
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.6;
+    }
+  }
+
+  .grid-pattern {
+    background-image: 
+      linear-gradient(to right, hsl(217 33% 12%) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(217 33% 12%) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .scan-line {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scan-line::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, hsl(160 84% 39% / 0.5), transparent);
+    animation: scan 3s linear infinite;
+  }
+
+  @keyframes scan {
+    0% {
+      top: 0;
+    }
+    100% {
+      top: 100%;
+    }
+  }
+}

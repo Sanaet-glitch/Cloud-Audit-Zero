@@ -4,14 +4,14 @@
 
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_file = "${path.module}/src/remediate.py"
-  output_path = "${path.module}/src/remediate.zip"
+  source_file = "${path.module}/../src/remediate.py"
+  output_path = "${path.module}/../src/remediate.zip"
 }
 
 data "archive_file" "validate_zip" {
   type        = "zip"
-  source_file = "${path.module}/src/validate.py"
-  output_path = "${path.module}/src/validate.zip"
+  source_file = "${path.module}/../src/validate.py"
+  output_path = "${path.module}/../src/validate.zip"
 }
 
 ################################################################################
@@ -79,10 +79,19 @@ resource "aws_iam_policy" "remediate_policy" {
         Resource = "arn:aws:logs:*:*:*"
       },
       {
+        # Allow Listing all buckets
+        Action = [
+          "s3:ListAllMyBuckets"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      },
+      {
         # Allow checking and fixing the bucket (Least Privilege)
         Action = [
           "s3:PutBucketPublicAccessBlock",
-          "s3:GetBucketPublicAccessBlock"
+          "s3:GetBucketPublicAccessBlock",
+          "s3:ListBucket"
         ]
         Effect   = "Allow"
         Resource = "arn:aws:s3:::*"
