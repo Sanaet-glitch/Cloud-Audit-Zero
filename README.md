@@ -78,6 +78,8 @@ The system operates on a **Serverless First** principle:
     * Refresh the page to see the setting automatically reverted to **On**.
     * Check DynamoDB (`cloud-audit-zero-logs`) for the audit record.
 
+---
+
 ## ✅ Advanced Verification & Cost Safety
 This project includes dedicated scripts to verify functional integrity and strict cost compliance.
 
