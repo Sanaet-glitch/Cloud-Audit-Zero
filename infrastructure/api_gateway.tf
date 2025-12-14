@@ -33,12 +33,25 @@ resource "aws_apigatewayv2_integration" "remediator_integration" {
   integration_method = "POST" 
 }
 
+resource "aws_apigatewayv2_integration" "get_logs_integration" {
+  api_id           = aws_apigatewayv2_api.main_api.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = aws_lambda_function.get_logs.invoke_arn
+  integration_method = "POST" # AWS Proxy always uses POST internally
+}
+
 # 2. The Route (URL Path): POST /remediate -> Triggers Lambda
 # This allows the frontend to POST to https://.../remediate
 resource "aws_apigatewayv2_route" "remediator_route" {
   api_id    = aws_apigatewayv2_api.main_api.id
   route_key = "POST /remediate"
   target    = "integrations/${aws_apigatewayv2_integration.remediator_integration.id}"
+}
+
+resource "aws_apigatewayv2_route" "get_logs_route" {
+  api_id    = aws_apigatewayv2_api.main_api.id
+  route_key = "GET /logs"
+  target    = "integrations/${aws_apigatewayv2_integration.get_logs_integration.id}"
 }
 
 # 3. Permission (Allow API Gateway to invoke Lambda)
@@ -49,4 +62,12 @@ resource "aws_lambda_permission" "api_gw_remediator" {
   principal     = "apigateway.amazonaws.com"
 
   source_arn = "${aws_apigatewayv2_api.main_api.execution_arn}/*/*/remediate"
+}
+
+resource "aws_lambda_permission" "api_gw_get_logs" {
+  statement_id  = "AllowExecutionFromAPIGatewayGetLogs"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_logs.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main_api.execution_arn}/*/*/logs"
 }
