@@ -55,7 +55,7 @@ const fetchLogs = async (): Promise<LogEntry[]> => {
     return {
       id: log.LogId,
       // Format the ISO date to look like your mock data (e.g., 1/15/2024, 2:30 PM)
-      timestamp: new Date(log.Timestamp).toLocaleString(),
+      timestamp: new Date(log.Timestamp.endsWith('Z') ? log.Timestamp : log.Timestamp + 'Z').toLocaleString(),
       event: log.Details, // Use the detailed message for the event column
       type: uiType,
       user: "system", // Default to system since these are automated Lambda actions
