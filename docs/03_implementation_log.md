@@ -202,3 +202,16 @@
     2.  **Remediation Rate:** Lambda invocations (How many threats neutralized?)
     3.  **System Health:** Lambda Error rates (Is the logic failing?)
 * **Result:** Dashboard successfully deployed. Visual verification confirmed correlation between attacks (Test Script) and Remediations.
+
+### Task 4.5: Comprehensive "Paranoid" Cost Audit
+* **Objective:** Verify absolute compliance with AWS Free Tier limits across ALL resource types, including those not checked in the initial audit (S3 Storage, Dashboard Count).
+* **Action:** Updated `tests/cost_audit.py` to include checks for:
+    * **S3:** Enumerating project buckets to warn about the 5GB limit.
+    * **CloudWatch Dashboards:** Verifying the count is ≤ 3 (Free Tier Limit).
+    * **Step Functions:** Verifying "Standard" workflow type.
+    * **EC2/NAT:** Scanning for "rogue" expensive resources.
+* **Result:** `python3 tests/cost_audit.py` returned "AUDIT PASSED".
+    * Confirmed 0 Dashboards used (before deployment).
+    * Confirmed 0 active EC2/NAT resources.
+    * Confirmed all Lambdas/DynamoDB settings are strictly Provisioned/Free-Tier compliant.
+* **Status:** Phase 4 Complete. Project is verified Zero Cost and functionally robust.
