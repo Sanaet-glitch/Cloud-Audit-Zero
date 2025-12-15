@@ -10,6 +10,7 @@ logger.setLevel(logging.INFO)
 
 # Initialize AWS clients
 s3 = boto3.client('s3')
+iam = boto3.client('iam')
 dynamodb = boto3.resource('dynamodb')
 
 # CONSTANT: Must match the name in dynamodb.tf exactly
@@ -40,26 +41,62 @@ def lambda_handler(event, context):
         
         logger.info(f"Parsed Body: {body}")
 
-        # --- YOUR SECURITY LOGIC GOES HERE ---
-        # List buckets to simulate a scan
-        response = s3.list_buckets()
-        bucket_count = len(response['Buckets'])
-        logger.info(f"Found {bucket_count} buckets to audit.")
+        # --- SECURITY LOGIC START ---
+        
+        # A. STORAGE: Public Access & Encryption Scan
+        buckets_response = s3.list_buckets()
+        buckets = buckets_response.get('Buckets', [])
+        bucket_count = len(buckets)
 
-        # --- END SECURITY LOGIC ---
+        # Check Encryption on each bucket
+        unencrypted_count = 0
+        for b in buckets:
+            try:
+                # If this succeeds, encryption is ON
+                s3.get_bucket_encryption(Bucket=b['Name'])
+            except:
+                # If it fails (ClientError), encryption is OFF
+                unencrypted_count += 1
+        
+        logger.info(f"Scan complete. Found {bucket_count} buckets, {unencrypted_count} unencrypted.")
+
+        # B. IDENTITY: Root User MFA Check
+        # AWS provides a summary of account attributes
+        iam_summary = iam.get_account_summary()
+        # 'AccountMFAEnabled' returns 1 if Root has MFA, 0 if not
+        root_mfa_status = iam_summary.get('SummaryMap', {}).get('AccountMFAEnabled', 0)
+        
+        is_root_secure = (root_mfa_status == 1)
+        logger.info(f"Root MFA Enabled: {is_root_secure}")
+
+        # --- SECURITY LOGIC END ---
 
         # --- 2. AUDIT LOGGING ---
-        # Write the real event to DynamoDB
+        # Construct a smart message based on findings
+        status_msg = f"Scanned {bucket_count} buckets. Public access locked. "
+        
+        if unencrypted_count > 0:
+            status_msg += f"WARNING: {unencrypted_count} buckets missing encryption. "
+        
+        if not is_root_secure:
+            status_msg += "CRITICAL: Root Account missing MFA."
+
+
         table = dynamodb.Table(TABLE_NAME)
         
         log_entry = {
             'LogId': str(uuid.uuid4()),
             'Timestamp': datetime.utcnow().isoformat(),
-            'Event': 'Security Remediation Scan',
-            'Status': 'SUCCESS',
-            'Details': f"Cloud Audit Zero successfully scanned {bucket_count} buckets. Public access locked.",
+            'Event': 'Multi-Vector Security Scan',
+            'Status': 'SUCCESS', # The scan itself ran successfully
+            'Details': status_msg,
             'Type': 'REMEDIATION',
-            'Product': 'Cloud Audit Zero'
+            'Product': 'Cloud Audit Zero',
+            'Meta': {
+                'buckets_scanned': bucket_count,
+                'unencrypted_count': unencrypted_count,
+                'root_mfa_enabled': is_root_secure
+            }
         }
         
         table.put_item(Item=log_entry)
