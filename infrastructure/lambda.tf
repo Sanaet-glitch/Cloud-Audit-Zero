@@ -131,7 +131,8 @@ resource "aws_iam_policy" "remediate_policy" {
       {
         # Allow scanning network firewalls
         Action = [
-          "ec2:DescribeSecurityGroups"
+          "ec2:DescribeSecurityGroups",       # Look at rules
+          "ec2:RevokeSecurityGroupIngress"    # DELETE dangerous rules
         ]
         Effect   = "Allow"
         Resource = "*"
