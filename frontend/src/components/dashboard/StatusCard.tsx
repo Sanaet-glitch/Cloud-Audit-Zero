@@ -185,7 +185,10 @@ const StatusCard = () => {
             <div key={pillar.id} className={`flex items-center justify-between p-3 rounded-lg border ${getStatusColor(pillar.status)}`}>
               <div className="flex items-center gap-3">
                 {pillar.icon}
-                <span className="text-sm font-medium text-foreground">{pillar.name}</span>
+                <div className="flex flex-col items-start">
+                  <span className="text-sm font-medium text-foreground">{pillar.name}</span>
+                  {pillar.action && pillar.action}
+                </div>
               </div>
               <span className="text-xs font-mono font-bold uppercase">
                 {pillar.detail}
