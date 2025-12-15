@@ -11,6 +11,7 @@ logger.setLevel(logging.INFO)
 # Initialize AWS clients
 s3 = boto3.client('s3')
 iam = boto3.client('iam')
+ec2 = boto3.client('ec2')
 dynamodb = boto3.resource('dynamodb')
 
 # CONSTANT: Must match the name in dynamodb.tf exactly
@@ -83,6 +84,27 @@ def lambda_handler(event, context):
         is_root_secure = (root_mfa_status == 1)
         logger.info(f"Root MFA Enabled: {is_root_secure}")
 
+        # C. NETWORK: Check for Open SSH (0.0.0.0/0 on Port 22)
+        open_ssh_count = 0
+        try:
+            sgs = ec2.describe_security_groups()['SecurityGroups']
+            for sg in sgs:
+                for permission in sg.get('IpPermissions', []):
+                    # Check if port 22 is included in the range
+                    from_port = permission.get('FromPort')
+                    to_port = permission.get('ToPort')
+                    
+                    if from_port is not None and to_port is not None:
+                         # 22 is SSH. If range covers 22...
+                        if from_port <= 22 <= to_port:
+                            # Check if it allows 0.0.0.0/0
+                            for ip_range in permission.get('IpRanges', []):
+                                if ip_range.get('CidrIp') == '0.0.0.0/0':
+                                    open_ssh_count += 1
+                                    logger.warning(f"Security Group {sg['GroupId']} allows Open SSH.")
+        except Exception as e:
+            logger.error(f"Network Scan Error: {str(e)}")
+
         # --- SECURITY LOGIC END ---
 
         # --- 2. AUDIT LOGGING ---
@@ -92,6 +114,9 @@ def lambda_handler(event, context):
         if unencrypted_count > 0:
             status_msg += f"WARNING: {unencrypted_count} buckets missing encryption. "
         
+        if open_ssh_count > 0:
+            status_msg += f"CRITICAL: {open_ssh_count} Security Groups have Open SSH. "
+
         if not is_root_secure:
             status_msg += "CRITICAL: Root Account missing MFA."
 
@@ -109,6 +134,7 @@ def lambda_handler(event, context):
             'Meta': {
                 'buckets_scanned': bucket_count,
                 'unencrypted_count': unencrypted_count,
+                'open_ssh_count': open_ssh_count,
                 'root_mfa_enabled': is_root_secure
             }
         }
