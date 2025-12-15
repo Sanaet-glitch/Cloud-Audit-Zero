@@ -14,18 +14,13 @@ Unlike basic scripts, this project uses a **Full-Stack Serverless Architecture**
 ---
 
 ## 🏗️ Architecture
-![alt text](Architecture-Diagram.png)
+![alt text](docs/Architecture-Diagram.png)
 
 The system operates on a **Modular Serverless Monolith** principle:
-
 1.  **Frontend (The Command Center):** A React (Vite) dashboard secured by **Clerk Authentication** allows authorized users to visualize threats and trigger remediations.
-
 2.  **API Layer (The Bridge):** AWS API Gateway (HTTP v2) securely routes frontend requests to backend logic.
-
 3.  **Compute (The Guard):** AWS Lambda (Python 3.12) executes security scans and applies fixes (e.g., `BlockPublicAccess`).
-
 4.  **Database (The Audit Trail):** Amazon DynamoDB stores immutable logs of every security event.
-
 5.  **The Honeypot (The Trap):** A decoy S3 bucket is deployed to attract and detect unauthorized reconnaissance.
 
 ---
