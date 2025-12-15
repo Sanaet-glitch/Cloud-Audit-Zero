@@ -54,9 +54,23 @@ def lambda_handler(event, context):
             try:
                 # If this succeeds, encryption is ON
                 s3.get_bucket_encryption(Bucket=b['Name'])
-            except:
-                # If it fails (ClientError), encryption is OFF
-                unencrypted_count += 1
+            except Exception as e:
+                # Capture the string representation of the error
+                error_code = str(e)
+                
+                # If the error is SPECIFICALLY the "Encryption Not Found" error, THEN it's a risk.
+                if "ServerSideEncryptionConfigurationNotFoundError" in error_code:
+                    unencrypted_count += 1
+                    logger.warning(f"Bucket {b['Name']} is TRULY unencrypted.")
+                    
+                elif "AccessDenied" in error_code:
+                    # If we get AccessDenied, it means the bucket is restricted 
+                    # (like your tfstate or another log bucket). Skip it to avoid false positives.
+                    logger.info(f"Skipping bucket {b['Name']} due to AccessDenied (Likely restricted policy).")
+                
+                else:
+                    # Catch all other unexpected errors
+                    logger.error(f"Could not check encryption for {b['Name']}: {error_code}")
         
         logger.info(f"Scan complete. Found {bucket_count} buckets, {unencrypted_count} unencrypted.")
 
