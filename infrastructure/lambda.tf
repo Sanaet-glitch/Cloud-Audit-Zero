@@ -107,7 +107,8 @@ resource "aws_iam_policy" "remediate_policy" {
         Action = [
           "s3:PutBucketPublicAccessBlock",
           "s3:GetBucketPublicAccessBlock",
-          "s3:ListBucket"
+          "s3:ListBucket",
+          "s3:GetBucketEncryption"
         ]
         Effect   = "Allow"
         Resource = "arn:aws:s3:::*"
@@ -119,6 +120,13 @@ resource "aws_iam_policy" "remediate_policy" {
         ]
         Effect   = "Allow"
         Resource = aws_dynamodb_table.audit_logs.arn
+      },
+      {
+        Action = [
+          "iam:GetAccountSummary"   # Allows checking Root MFA status
+        ]
+        Effect   = "Allow"
+        Resource = "*"
       }
     ]
   })
