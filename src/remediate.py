@@ -29,19 +29,20 @@ def lambda_handler(event, context):
     try:
         # --- SECURITY LOGIC START ---
         
-        # A. STORAGE: Public Access & Encryption Scan
+        # A. STORAGE: Detailed Scan
         buckets_response = s3.list_buckets()
         buckets = buckets_response.get('Buckets', [])
+        bucket_names = [b['Name'] for b in buckets]
         bucket_count = len(buckets)
 
-        unencrypted_count = 0
+        unencrypted_buckets = []
         for b in buckets:
             try:
                 s3.get_bucket_encryption(Bucket=b['Name'])
             except Exception as e:
                 error_code = str(e)
                 if "ServerSideEncryptionConfigurationNotFoundError" in error_code:
-                    unencrypted_count += 1
+                    unencrypted_buckets.append(b['Name'])
                 elif "AccessDenied" in error_code:
                     logger.info(f"Skipping bucket {b['Name']} (AccessDenied).")
 
@@ -50,9 +51,8 @@ def lambda_handler(event, context):
         root_mfa_status = iam_summary.get('SummaryMap', {}).get('AccountMFAEnabled', 0)
         is_root_secure = (root_mfa_status == 1)
 
-        # C. NETWORK: Active Remediation of Port 22
-        # We track which SGs we actually fix
-        remediated_sgs = [] 
+        # C. NETWORK: Active Remediation with Names
+        remediated_sgs = [] # Stores formatted strings like "sg-123 (WebServer)"
         
         try:
             sgs = ec2.describe_security_groups()['SecurityGroups']
@@ -62,42 +62,62 @@ def lambda_handler(event, context):
                     to_port = permission.get('ToPort')
                     
                     if from_port is not None and to_port is not None:
-                        # Check if rule covers SSH (22)
                         if from_port <= 22 <= to_port:
                             for ip_range in permission.get('IpRanges', []):
                                 if ip_range.get('CidrIp') == '0.0.0.0/0':
                                     # VULNERABILITY FOUND!
                                     sg_id = sg['GroupId']
-                                    logger.warning(f"Found Open SSH on {sg_id}. REMEDIATING...")
+                                    sg_name = sg.get('GroupName', 'Unknown')
                                     
-                                    # --- THE FIX ---
-                                    # We revoke ONLY this specific rule immediately
+                                    # Log before fixing
+                                    logger.warning(f"Found Open SSH on {sg_id} ({sg_name}). REMEDIATING...")
+                                    
+                                    # FIX
                                     ec2.revoke_security_group_ingress(
                                         GroupId=sg_id,
-                                        IpPermissions=[permission] # Revoke exactly what we found
+                                        IpPermissions=[permission]
                                     )
-                                    remediated_sgs.append(sg_id)
-                                    logger.info(f"Successfully closed Port 22 on {sg_id}")
+                                    
+                                    # Add to report
+                                    remediated_sgs.append(f"{sg_id} ({sg_name})")
                                     
         except Exception as e:
             logger.error(f"Network Remediation Error: {str(e)}")
 
-        # --- SECURITY LOGIC END ---
+        # --- AUDIT LOGGING (ENTERPRISE FORMAT) ---
+        
+        # Helper to format lists cleanly
+        def format_list(items, max_show=3):
+            if not items: return ""
+            if len(items) <= max_show:
+                return ", ".join(items)
+            return f"{', '.join(items[:max_show])} and {len(items)-max_show} others"
 
-        # --- AUDIT LOGGING ---
-        # Construct detailed status message
-        status_msg = f"Scanned {bucket_count} buckets. Storage Secure. "
+        # Construct the detailed message
+        details_parts = []
         
-        if len(remediated_sgs) > 0:
-            # We explicitly list the IDs of the fixed groups
-            sg_list = ", ".join(remediated_sgs)
-            status_msg += f"NET SEC: Remediated Open SSH on {sg_list}. "
-        
-        if unencrypted_count > 0:
-            status_msg += f"WARNING: {unencrypted_count} unencrypted buckets. "
+        # 1. Storage Part
+        if bucket_count > 0:
+            details_parts.append(f"Scanned: [{format_list(bucket_names)}].")
+        else:
+            details_parts.append("No buckets found.")
+
+        # 2. Network Part (The Remediation)
+        if remediated_sgs:
+            details_parts.append(f"REMEDIATED SSH on: {', '.join(remediated_sgs)}.")
+        else:
+            details_parts.append("Network Secure.")
+
+        # 3. Encryption Warnings
+        if unencrypted_buckets:
+            details_parts.append(f"WARNING: Unencrypted buckets detected: {format_list(unencrypted_buckets)}.")
             
+        # 4. Identity Warnings
         if not is_root_secure:
-            status_msg += "CRITICAL: Root Account missing MFA."
+            details_parts.append("CRITICAL: Root Account missing MFA.")
+
+        # Combine
+        final_msg = " ".join(details_parts)
 
         table = dynamodb.Table(TABLE_NAME)
         
@@ -106,13 +126,13 @@ def lambda_handler(event, context):
             'Timestamp': datetime.utcnow().isoformat(),
             'Event': 'Multi-Vector Remediation',
             'Status': 'SUCCESS', 
-            'Details': status_msg,
+            'Details': final_msg,
             'Type': 'REMEDIATION',
             'Product': 'Cloud Audit Zero',
             'Meta': {
-                'buckets_scanned': bucket_count,
-                'remediated_sgs': remediated_sgs,
-                'root_mfa_enabled': is_root_secure
+                'total_buckets': bucket_count,
+                'fixed_sgs_count': len(remediated_sgs),
+                'root_mfa': is_root_secure
             }
         }
         
@@ -123,7 +143,7 @@ def lambda_handler(event, context):
             "headers": headers,
             "body": json.dumps({
                 "success": True,
-                "message": "Multi-Vector Remediation Complete.",
+                "message": "Deep Scan Complete.",
                 "data": log_entry
             })
         }
