@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Lock, Loader2, ShieldAlert, FileKey, Network, User, Database, ExternalLink } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Lock, Loader2, ShieldAlert, FileKey, Network, User, Database, ExternalLink, RefreshCw, ScanEye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -33,8 +33,9 @@ const fetchLatestStatus = async () => {
 };
 
 const StatusCard = () => {
-  // We track 3 states: secure, fixable (S3), or manual (MFA)
-  const [statusState, setStatusState] = useState<"secure" | "risk_fixable" | "risk_manual">("secure");
+  const [isFullySecure, setIsFullySecure] = useState(false);
+  const [hasMfaRisk, setHasMfaRisk] = useState(false);
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -50,25 +51,16 @@ const StatusCard = () => {
     if (latestLog) {
       const details = latestLog.Details || "";
       const rootMissing = details.includes("Root Account missing");
-      const encryptionMissing = details.includes("buckets missing encryption");
-      const publicBuckets = details.includes("scanned") && !details.includes("Public access locked");
+      const encryptionMissing = details.includes("Buckets missing encryption");
+      const publicBuckets = details.includes("Scanned") && !details.includes("Public access locked");
+
+      // Update MFA Flag specifically (used for the mini-button)
+      setHasMfaRisk(rootMissing);
       
-      // PRIORITY 1: If S3 is public, we can Auto-Fix it.
-      if (publicBuckets) {
-         setStatusState("risk_fixable");
-      }
-      // PRIORITY 2: If Root MFA is missing, Human must fix it.
-      else if (rootMissing) {
-         setStatusState("risk_manual");
-      }
-      // PRIORITY 3: Encryption usually requires manual migration.
-      else if (encryptionMissing) {
-         setStatusState("risk_manual");
-      }
-      // OTHERWISE: We are green.
-      else {
-         setStatusState("secure");
-      }
+      // Determine Global Security State
+      // It is ONLY secure if there are no public buckets AND no MFA risk AND no Encryption risk
+      const isClean = !rootMissing && !encryptionMissing && !publicBuckets;
+      setIsFullySecure(isClean);
     }
   }, [latestLog]);
 
@@ -109,7 +101,18 @@ const StatusCard = () => {
       name: "Identity (IAM)",
       icon: <User className="h-4 w-4" />,
       status: latestLog?.Details?.includes("Root Account missing") ? "critical" : "secure",
-      detail: latestLog?.Details?.includes("Root Account missing") ? "Root MFA Missing" : "MFA Enforced"
+      detail: latestLog?.Details?.includes("Root Account missing") ? "Root MFA Missing" : "MFA Enforced",
+      // Action Link
+      action: hasMfaRisk ? (
+        <a 
+          href="https://console.aws.amazon.com/iam/home#/security_credentials" 
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center text-[10px] font-bold text-red-400 hover:text-red-300 mt-1 uppercase tracking-wider"
+        >
+          Open AWS IAM to Fix MFA <ExternalLink className="h-3 w-3 ml-1" />
+        </a>
+      ) : null
     },
     {
       id: "network",
@@ -135,7 +138,7 @@ const StatusCard = () => {
 
   return (
     <Card className={`relative overflow-hidden transition-all duration-500 ${
-      statusState === "secure" 
+      isFullySecure 
         ? "border-primary/50 glow-success" 
         : "border-warning/30 glow-warning"
     }`}>
@@ -146,7 +149,7 @@ const StatusCard = () => {
       <CardHeader className="relative pb-4">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            {statusState === "secure" ? (
+            {isFullySecure ? (
               <div className="p-3 rounded-xl bg-primary/10 border border-primary/20">
                 <CheckCircle2 className="h-8 w-8 text-primary" />
               </div>
@@ -166,11 +169,11 @@ const StatusCard = () => {
           </div>
 
           <div className={`px-3 py-1.5 rounded-full text-xs font-mono font-medium ${
-            statusState === "secure" 
+            isFullySecure 
               ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" 
               : "bg-red-500/10 text-red-500 border border-red-500/20"
           }`}>
-            {statusState === "secure" ? "SYSTEM SECURE" : "ACTION REQUIRED"}
+            {isFullySecure ? "SYSTEM SECURE" : "ACTION REQUIRED"}
           </div>
         </div>
       </CardHeader>
@@ -191,31 +194,37 @@ const StatusCard = () => {
           ))}
         </div>
 
-        {/* Action Button */}
-        {statusState === "secure" ? (
-           <Button disabled size="lg" className="w-full h-14 text-base font-semibold bg-emerald-500/20 text-emerald-500 cursor-default">
-              <CheckCircle2 className="h-5 w-5 mr-2" /> All Systems Verified Secure
-           </Button>
-        ) : statusState === "risk_manual" ? (
-           <Button 
-             variant="destructive" 
-             size="lg" 
-             className="w-full h-14 text-base font-semibold shadow-lg hover:shadow-red-500/25"
-             onClick={() => window.open("https://console.aws.amazon.com/iam/home#/security_credentials", "_blank")}
-           >
-              <ExternalLink className="h-5 w-5 mr-2" /> Open AWS IAM to Fix MFA
-           </Button>
-        ) : (
-           <Button
-             onClick={() => mutation.mutate()}
-             disabled={mutation.isPending}
-             size="lg"
-             className="w-full h-14 text-base font-semibold bg-red-600 hover:bg-red-700 text-white shadow-lg hover:shadow-red-500/25"
-           >
-             {mutation.isPending ? <Loader2 className="h-5 w-5 mr-2 animate-spin" /> : <Lock className="h-5 w-5 mr-2" />}
-             Auto-Fix Security Risks
-           </Button>
-        )}
+        {/* THE MAIN COMMAND BUTTON 
+            Always visible. Always allows scanning.
+            State changes text, but not functionality.
+        */}
+        <Button
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+          size="lg"
+          className={`w-full h-14 text-base font-semibold transition-all duration-300 ${
+            isFullySecure
+              ? "bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30 border border-emerald-500/30" 
+              : "bg-red-600 hover:bg-red-700 text-white shadow-lg hover:shadow-red-500/25"
+          }`}
+        >
+          {mutation.isPending ? (
+            <>
+              <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+              Running Diagnostics...
+            </>
+          ) : isFullySecure ? (
+            <>
+              <RefreshCw className="h-5 w-5 mr-2" />
+              System Secure • Click to Re-Scan
+            </>
+          ) : (
+            <>
+              <ScanEye className="h-5 w-5 mr-2" />
+              Execute Automated Remediation
+            </>
+          )}
+        </Button>
       </CardContent>
     </Card>
   );
