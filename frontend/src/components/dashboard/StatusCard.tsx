@@ -1,30 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Lock, Loader2, ShieldAlert, CloudOff } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Lock, Loader2, ShieldAlert, FileKey, Network, User, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
 // Real API call to AWS API Gateway
 const remediateRisk = async (): Promise<{ success: boolean; message: string }> => {
-  try {
-    const response = await fetch('https://xtu2ncoiri.execute-api.us-east-1.amazonaws.com/remediate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: "remediate_all" }) // We send a payload just in case the backend needs it
-    });
+  const apiUrl = import.meta.env.VITE_API_URL;
+  if (!apiUrl) throw new Error("Missing API URL");
 
-    if (!response.ok) {
-      throw new Error('Network response was not ok');
-    }
+  const response = await fetch(`${apiUrl}/remediate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: "remediate_all" })
+  });
 
-    // Return the actual response from your Python Lambda
-    return await response.json();
-    
-  } catch (error) {
-    console.error("Remediation failed:", error);
-    throw error; // This triggers the "Error" state in your UI
-  }
+  if (!response.ok) throw new Error('Remediation failed');
+  return await response.json();
 };
 
 const StatusCard = () => {
@@ -37,24 +30,60 @@ const StatusCard = () => {
     onSuccess: (data) => {
       setIsSecure(true);
       toast({
-        title: "✅ Remediation Complete",
-        description: data.message,
+        title: "✅ Cloud Secured",
+        description: data.message, // Real message from Python backend
         duration: 5000,
       });
-      queryClient.invalidateQueries({ queryKey: ["securityStatus"] });
+      // Refresh the StatsGrid and Logs immediately
+      queryClient.invalidateQueries({ queryKey: ["securityStats"] });
+      queryClient.invalidateQueries({ queryKey: ["activity-logs"] });
     },
-    onError: () => {
+    onError: (error) => {
       toast({
         title: "❌ Remediation Failed",
-        description: "Unable to connect to security backend. Please try again.",
+        description: error.message,
         variant: "destructive",
         duration: 5000,
       });
     },
   });
 
-  const handleRemediate = () => {
-    mutation.mutate();
+// 4 Pillars Configuration (Hybrid Real/Mock)
+  const pillars = [
+    {
+      id: "storage",
+      name: "Storage Security",
+      icon: <Database className="h-4 w-4" />,
+      status: isSecure ? "secure" : "critical", // REAL (S3)
+      detail: isSecure ? "All buckets private" : "3 Public Buckets Found"
+    },
+    {
+      id: "identity",
+      name: "Identity (IAM)",
+      icon: <User className="h-4 w-4" />,
+      status: isSecure ? "secure" : "warning", // MOCK
+      detail: isSecure ? "MFA Enforced" : "Root user active"
+    },
+    {
+      id: "network",
+      name: "Network Access",
+      icon: <Network className="h-4 w-4" />,
+      status: isSecure ? "secure" : "critical", // MOCK
+      detail: isSecure ? "VPC Locked Down" : "Port 22 Open (0.0.0.0/0)"
+    },
+    {
+      id: "encryption",
+      name: "Data Encryption",
+      icon: <FileKey className="h-4 w-4" />,
+      status: "secure", // Always secure in this demo
+      detail: "EBS Volumes Encrypted"
+    }
+  ];
+
+  const getStatusColor = (status: string) => {
+    if (status === "secure") return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+    if (status === "warning") return "text-amber-500 bg-amber-500/10 border-amber-500/20";
+    return "text-red-500 bg-red-500/10 border-red-500/20";
   };
 
   return (
@@ -63,8 +92,6 @@ const StatusCard = () => {
         ? "border-primary/50 glow-success" 
         : "border-warning/30 glow-warning"
     }`}>
-      {/* Animated scan line effect */}
-      <div className="scan-line absolute inset-0 pointer-events-none" />
       
       {/* Background pattern */}
       <div className="absolute inset-0 grid-pattern opacity-30" />
@@ -86,106 +113,62 @@ const StatusCard = () => {
                 Threat Monitor
               </CardTitle>
               <CardDescription className="text-muted-foreground font-mono text-sm mt-1">
-                Real-time security status
+                Real-time Infrastructure Scan
               </CardDescription>
             </div>
           </div>
 
           <div className={`px-3 py-1.5 rounded-full text-xs font-mono font-medium ${
             isSecure 
-              ? "bg-primary/10 text-primary border border-primary/20" 
-              : "bg-warning/10 text-warning border border-warning/20"
+              ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" 
+              : "bg-red-500/10 text-red-500 border border-red-500/20"
           }`}>
-            {isSecure ? "PROTECTED" : "AT RISK"}
+            {isSecure ? "SYSTEM SECURE" : "CRITICAL RISK"}
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="relative space-y-6">
-        {/* Status Message */}
-        <div className={`p-4 rounded-lg border ${
-          isSecure 
-            ? "bg-primary/5 border-primary/20" 
-            : "bg-warning/5 border-warning/20"
-        }`}>
-          <div className="flex items-start gap-3">
-            {isSecure ? (
-              <CheckCircle2 className="h-5 w-5 text-primary mt-0.5 shrink-0" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-warning mt-0.5 shrink-0" />
-            )}
-            <div>
-              <p className={`font-medium ${isSecure ? "text-primary" : "text-warning"}`}>
-                {isSecure 
-                  ? "✅ Secure: All Buckets Private" 
-                  : "⚠️ Critical Risk Detected: Public S3 Buckets Found"
-                }
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                {isSecure 
-                  ? "All cloud storage resources have been secured and are no longer publicly accessible." 
-                  : "3 S3 buckets with sensitive data are publicly accessible. Immediate action required."
-                }
-              </p>
+        {/* The 4 Pillars Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {pillars.map((pillar) => (
+            <div key={pillar.id} className={`flex items-center justify-between p-3 rounded-lg border ${getStatusColor(pillar.status)}`}>
+              <div className="flex items-center gap-3">
+                {pillar.icon}
+                <span className="text-sm font-medium text-foreground">{pillar.name}</span>
+              </div>
+              <span className="text-xs font-mono font-bold uppercase">
+                {pillar.detail}
+              </span>
             </div>
-          </div>
+          ))}
         </div>
-
-        {/* Threat Details (only show when not secure) */}
-        {!isSecure && (
-          <div className="grid grid-cols-3 gap-4">
-            <div className="p-3 rounded-lg bg-destructive/5 border border-destructive/20">
-              <div className="flex items-center gap-2 text-destructive">
-                <CloudOff className="h-4 w-4" />
-                <span className="text-xs font-mono uppercase">Critical</span>
-              </div>
-              <p className="text-2xl font-bold text-foreground mt-1">3</p>
-              <p className="text-xs text-muted-foreground">Public Buckets</p>
-            </div>
-            <div className="p-3 rounded-lg bg-warning/5 border border-warning/20">
-              <div className="flex items-center gap-2 text-warning">
-                <AlertTriangle className="h-4 w-4" />
-                <span className="text-xs font-mono uppercase">Warning</span>
-              </div>
-              <p className="text-2xl font-bold text-foreground mt-1">12</p>
-              <p className="text-xs text-muted-foreground">Exposed Files</p>
-            </div>
-            <div className="p-3 rounded-lg bg-muted border border-border">
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <ShieldAlert className="h-4 w-4" />
-                <span className="text-xs font-mono uppercase">Risk Score</span>
-              </div>
-              <p className="text-2xl font-bold text-destructive mt-1">87%</p>
-              <p className="text-xs text-muted-foreground">High Severity</p>
-            </div>
-          </div>
-        )}
 
         {/* Action Button */}
         <Button
-          onClick={handleRemediate}
+          onClick={() => mutation.mutate()}
           disabled={mutation.isPending || isSecure}
           size="lg"
           className={`w-full h-14 text-base font-semibold transition-all duration-300 ${
             isSecure 
-              ? "bg-primary/20 text-primary hover:bg-primary/20 cursor-default" 
-              : "bg-primary hover:bg-primary/90 text-primary-foreground glow-primary hover:glow-success"
+              ? "bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/20 cursor-default" 
+              : "bg-red-600 hover:bg-red-700 text-white shadow-lg hover:shadow-red-500/25"
           }`}
         >
           {mutation.isPending ? (
             <>
               <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-              Remediating...
+              Executing Remediation Protocols...
             </>
           ) : isSecure ? (
             <>
               <CheckCircle2 className="h-5 w-5 mr-2" />
-              Security Verified
+              All Systems Verified Secure
             </>
           ) : (
             <>
               <Lock className="h-5 w-5 mr-2" />
-              Auto-Fix Security Risks
+              Auto-Fix All 3 Critical Risks
             </>
           )}
         </Button>
