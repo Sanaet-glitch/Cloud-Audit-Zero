@@ -98,7 +98,7 @@ def lambda_handler(event, context):
         
         # 1. Storage Part
         if bucket_count > 0:
-            details_parts.append(f"Scanned: [{format_list(bucket_names)}].")
+            details_parts.append(f"Scanned buckets: [{format_list(bucket_names)}].")
         else:
             details_parts.append("No buckets found.")
 
