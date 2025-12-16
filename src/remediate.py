@@ -138,30 +138,32 @@ def lambda_handler(event, context):
             sgs = ec2.describe_security_groups()['SecurityGroups']
             for sg in sgs:
                 for perm in sg.get('IpPermissions', []):
-                    # --- UPDATED DETECTION LOGIC ---
+                    # --- FIX: ROBUST "ALL TRAFFIC" DETECTION ---
                     protocol = perm.get('IpProtocol')
                     from_port = perm.get('FromPort')
                     to_port = perm.get('ToPort')
                     
-                    is_vulnerable = False
+                    is_risk_rule = False
 
-                    # Check 1: All Traffic (-1) -> implicitly includes SSH
+                    # Condition A: Protocol is "-1" (AWS code for All Traffic)
                     if protocol == '-1':
-                        is_vulnerable = True
+                        is_risk_rule = True
                     
-                    # Check 2: Specific Port Range includes 22
+                    # Condition B: Specific Port Range includes 22 (SSH)
+                    # We utilize elif here so we don't crash on None values from Condition A
                     elif from_port is not None and to_port is not None:
                         if from_port <= 22 <= to_port:
-                            is_vulnerable = True
+                            is_risk_rule = True
                     
-                    if is_vulnerable:
-                        # Check if exposed to the world (0.0.0.0/0)
+                    # If either condition is met, check if it's open to the world
+                    if is_risk_rule:
                         for ip in perm.get('IpRanges', []):
                             if ip.get('CidrIp') == '0.0.0.0/0':
+                                # WE FOUND A RISK
                                 identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
                                 
                                 if mode in ['remediate_all', 'remediate_network']:
-                                    # Fix it by revoking this specific permission rule
+                                    # Fix it by revoking this specific rule
                                     ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
                                     remediated_sgs.append(identifier)
                                 else:
