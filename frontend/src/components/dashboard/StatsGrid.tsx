@@ -2,24 +2,35 @@ import { Shield, Activity, CheckCircle, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 
-// 1. Fetch Real Data to calculate stats
+// 1. Fetch Real Data
 const fetchStats = async () => {
   const apiUrl = import.meta.env.VITE_API_URL;
-  if (!apiUrl) return { totalScans: 0, lastRun: null };
+  if (!apiUrl) return { totalScans: 0, criticalRisks: 0, isSecure: false };
 
   try {
     const response = await fetch(`${apiUrl}/logs`);
-    if (!response.ok) return { totalScans: 0, lastRun: null };
+    if (!response.ok) return { totalScans: 0, criticalRisks: 0, isSecure: false };
+    
     const json = await response.json();
     const logs = json.data || [];
-    
+    const latest = logs[0] || {};
+    const meta = latest.Meta || {};
+
+    // Calculate REAL risk count from the last scan
+    const riskCount = 
+      (meta.open_sgs?.length || 0) + 
+      (meta.unencrypted_count || 0) + 
+      (meta.unencrypted_rds || 0) + 
+      (meta.unencrypted_dynamo || 0) + 
+      (meta.root_mfa_secure === false ? 1 : 0);
+
     return {
       totalScans: logs.length,
-      // Check if the most recent log was a success
-      isSecureNow: logs.length > 0 && logs[0].Status === "SUCCESS"
+      criticalRisks: riskCount,
+      isSecure: latest.Status === 'SUCCESS'
     };
   } catch (e) {
-    return { totalScans: 0, isSecureNow: false };
+    return { totalScans: 0, criticalRisks: 0, isSecure: false };
   }
 };
 
@@ -30,11 +41,10 @@ const StatsGrid = () => {
     refetchInterval: 5000
   });
 
-// Hybrid Data: Real Scans + Mocked Environment Stats
   const stats = [
     {
-      label: "Total Remediations",
-      value: data?.totalScans.toString() || "0", // REAL
+      label: "Total Events Logged",
+      value: data?.totalScans.toString() || "0",
       icon: <Activity className="h-5 w-5" />,
       trend: "Live",
       trendUp: true,
@@ -42,23 +52,23 @@ const StatsGrid = () => {
     },
     {
       label: "Compliance Score",
-      value: data?.isSecureNow ? "98%" : "65%", // DYNAMIC (Changes when you fix)
+      value: data?.isSecure ? "100%" : "65%", // Dynamic based on security status
       icon: <Shield className="h-5 w-5" />,
-      trend: data?.isSecureNow ? "+33%" : "Low",
-      trendUp: !!data?.isSecureNow,
-      color: data?.isSecureNow ? "text-emerald-500" : "text-amber-500"
+      trend: data?.isSecure ? "Perfect" : "At Risk",
+      trendUp: !!data?.isSecure,
+      color: data?.isSecure ? "text-emerald-500" : "text-amber-500"
     },
     {
-      label: "Critical Risks",
-      value: data?.isSecureNow ? "0" : "3", // DYNAMIC (Hybrid S3 + Mock)
+      label: "Active Risks",
+      value: data?.criticalRisks.toString() || "0", // REAL DATA NOW
       icon: <AlertTriangle className="h-5 w-5" />,
-      trend: data?.isSecureNow ? "Fixed" : "Action Req.",
-      trendUp: !!data?.isSecureNow,
-      color: data?.isSecureNow ? "text-slate-500" : "text-red-500"
+      trend: data?.criticalRisks === 0 ? "Resolved" : "Action Req.",
+      trendUp: data?.criticalRisks === 0,
+      color: data?.criticalRisks === 0 ? "text-slate-500" : "text-red-500"
     },
     {
       label: "Protected Resources",
-      value: "1,284", // Mock (Simulating total cloud estate)
+      value: "1,284", // This remains static/mocked for now as we don't count total resources
       icon: <CheckCircle className="h-5 w-5" />,
       trend: "Stable",
       trendUp: true,
@@ -77,7 +87,7 @@ const StatsGrid = () => {
               </div>
               {stat.trend && (
                 <span className={`text-xs font-mono ${
-                  stat.trendUp ? "text-primary" : "text-destructive"
+                  stat.trendUp ? "text-emerald-500" : "text-red-500"
                 }`}>
                   {stat.trend}
                 </span>
