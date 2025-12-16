@@ -12,9 +12,9 @@ logger.setLevel(logging.INFO)
 s3 = boto3.client('s3')
 iam = boto3.client('iam')
 ec2 = boto3.client('ec2')
-rds = boto3.client('rds')  # <--- NEW: RDS Client
-dynamodb = boto3.client('dynamodb') # <--- NEW: DynamoDB Client (for describing)
-dynamodb_res = boto3.resource('dynamodb') # Resource for putting logs
+rds = boto3.client('rds')
+dynamodb = boto3.client('dynamodb')
+dynamodb_res = boto3.resource('dynamodb')
 
 TABLE_NAME = "CloudAuditZeroLogs"
 
@@ -44,7 +44,6 @@ def lambda_handler(event, context):
         # PILLAR 1: DATA ENCRYPTION (S3 + DATABASES)
         # ====================================================
         
-        # --- A. S3 Encryption ---
         buckets = s3.list_buckets().get('Buckets', [])
         bucket_names = [b['Name'] for b in buckets]
         bucket_count = len(buckets)
@@ -67,8 +66,7 @@ def lambda_handler(event, context):
                     else:
                         unencrypted_buckets.append(b_name)
 
-        # --- B. Database Encryption (RDS) ---
-        # Note: We only SCAN RDS because fixing it requires downtime/rebuild
+        # Database Checks (RDS/DynamoDB) - Scan Only
         unencrypted_rds = []
         try:
             dbs = rds.describe_db_instances()['DBInstances']
@@ -78,13 +76,11 @@ def lambda_handler(event, context):
         except Exception as e:
             logger.error(f"RDS Scan Error: {str(e)}")
 
-        # --- C. Database Encryption (DynamoDB) ---
         unencrypted_dynamo = []
         try:
             tables = dynamodb.list_tables()['TableNames']
             for t_name in tables:
                 desc = dynamodb.describe_table(TableName=t_name)['Table']
-                # DynamoDB is encrypted by default, but we check if explicitly disabled or using wrong key
                 if 'SSEDescription' in desc and desc['SSEDescription']['Status'] == 'DISABLED':
                     unencrypted_dynamo.append(t_name)
         except Exception as e:
@@ -94,20 +90,40 @@ def lambda_handler(event, context):
         # ====================================================
         # PILLAR 2: STORAGE SECURITY (Public Access)
         # ====================================================
-        public_risk_buckets = [] 
-        if mode in ['remediate_all', 'remediate_storage']:
-            for b_name in bucket_names:
-                try:
-                    s3.put_public_access_block(
-                        Bucket=b_name,
-                        PublicAccessBlockConfiguration={
-                            'BlockPublicAcls': True, 'IgnorePublicAcls': True,
-                            'BlockPublicPolicy': True, 'RestrictPublicBuckets': True
-                        }
-                    )
-                    public_risk_buckets.append(b_name) 
-                except Exception as e:
-                    logger.error(f"Failed to lock bucket {b_name}: {str(e)}")
+        public_risk_buckets = [] # Found (Scan) or Fixed (Remediate)
+        
+        for b_name in bucket_names:
+            # 1. CHECK CURRENT STATUS
+            is_public = False
+            try:
+                pab = s3.get_public_access_block(Bucket=b_name)
+                conf = pab['PublicAccessBlockConfiguration']
+                # It is secure ONLY if all 4 flags are True
+                if not (conf['BlockPublicAcls'] and conf['IgnorePublicAcls'] and conf['BlockPublicPolicy'] and conf['RestrictPublicBuckets']):
+                    is_public = True
+            except Exception as e:
+                # NoSuchPublicAccessBlockConfiguration means it's wide open
+                if "NoSuchPublicAccessBlockConfiguration" in str(e):
+                    is_public = True
+            
+            # 2. ACT BASED ON STATUS & MODE
+            if is_public:
+                if mode in ['remediate_all', 'remediate_storage']:
+                    # FIX IT
+                    try:
+                        s3.put_public_access_block(
+                            Bucket=b_name,
+                            PublicAccessBlockConfiguration={
+                                'BlockPublicAcls': True, 'IgnorePublicAcls': True,
+                                'BlockPublicPolicy': True, 'RestrictPublicBuckets': True
+                            }
+                        )
+                        public_risk_buckets.append(b_name) # Log as Fixed
+                    except Exception as e:
+                        logger.error(f"Failed to lock bucket {b_name}: {str(e)}")
+                elif mode == 'scan':
+                    # REPORT IT
+                    public_risk_buckets.append(b_name) # Log as Risk
 
         # ====================================================
         # PILLAR 3: IDENTITY (IAM)
@@ -162,12 +178,17 @@ def lambda_handler(event, context):
         # 3. Identity Report
         if not is_root_secure: details.append("CRITICAL: Root MFA Missing.")
 
-        # 4. Storage Report (Public Access)
-        if mode == 'remediate_all' and public_risk_buckets:
-             details.append(f"FIXED: Locked {len(public_risk_buckets)} Buckets.")
+        # 4. Storage Report (Smart Logic)
+        if public_risk_buckets:
+            if 'remediate' in mode:
+                details.append(f"FIXED: Locked {len(public_risk_buckets)} Public Buckets.")
+            else:
+                details.append(f"CRITICAL: Found {len(public_risk_buckets)} Public Buckets.")
 
         # Logic for Overall Status
-        if (unencrypted_buckets or unencrypted_rds or open_sgs or not is_root_secure) and 'scan' in mode:
+        risks_exist = (unencrypted_buckets or unencrypted_rds or open_sgs or not is_root_secure or (mode == 'scan' and public_risk_buckets))
+        
+        if risks_exist and 'scan' in mode:
             status_flag = 'WARNING'
         
         final_msg = " ".join(details) if details else "All Systems Secure."
@@ -187,6 +208,7 @@ def lambda_handler(event, context):
             'Meta': {
                 'mode': mode,
                 'total_buckets': bucket_count,
+                'open_buckets': public_risk_buckets if mode == 'scan' else [],
                 'unencrypted_rds': len(unencrypted_rds),
                 'unencrypted_dynamo': len(unencrypted_dynamo),
                 'open_sgs': len(open_sgs),
