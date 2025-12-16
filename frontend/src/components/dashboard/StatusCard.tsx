@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
-// 1. API API Wrapper
+// API API Wrapper
 const triggerEngine = async (action: string): Promise<any> => {
   const apiUrl = import.meta.env.VITE_API_URL;
   if (!apiUrl) throw new Error("Missing API URL");
@@ -39,57 +39,60 @@ const StatusCard = () => {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
-  // Real State from Backend Meta
-  const { data: latestLog } = useQuery({
+  const { data: latestLog, isLoading } = useQuery({
     queryKey: ["latestStatus"],
     queryFn: fetchLatestStatus,
     refetchInterval: 3000
   });
 
-  // Extract Findings from the latest log
   const meta = latestLog?.Meta || {};
+  const details = latestLog?.Details || "";
+
+  // --- SMART RISK LOGIC ---
+  // We determine risk based on specific findings, not just global status.
+  const hasNetworkRisk = (meta.open_sgs?.length || 0) > 0;
+  const hasEncryptionRisk = (meta.unencrypted_count || 0) > 0 || (meta.unencrypted_rds || 0) > 0;
+  const hasIamRisk = meta.root_mfa_secure === false;
   
-  const findings = {
-    s3_public: meta.total_buckets > 0 && latestLog?.Status === 'WARNING' && !latestLog?.Details.includes("Locked"), // Simplified check
-    encryption_missing: (meta.unencrypted_count || 0) > 0 || (meta.unencrypted_rds || 0) > 0 || (meta.unencrypted_dynamo || 0) > 0,
-    network_open: (meta.open_sgs?.length || 0) > 0,
-    iam_risk: meta.root_mfa_secure === false
-  };
+  // Storage Logic: It is risky ONLY if explicitly flagged in a scan, otherwise we assume monitored/safe
+  // The backend currently auto-fixes storage in remediate_all, so we check if we just fixed it.
+  const isStorageFixed = details.includes("Locked") || details.includes("Secured");
+  // If we haven't just fixed it, and we are in a warning state that ISN'T network/IAM/Encryption, it might be storage.
+  // But for safety, we default Storage to "Secure" unless we explicitly add a "Public Bucket" detector in the backend.
+  // For now, we trust the remediation state.
+  const hasStorageRisk = !isStorageFixed && meta.total_buckets > 0 && latestLog?.Status === 'WARNING' && !hasNetworkRisk && !hasIamRisk && !hasEncryptionRisk;
 
   const isSecure = latestLog?.Status === 'SUCCESS';
 
-  // Generic Mutation Handler
   const mutation = useMutation({
     mutationFn: triggerEngine,
     onSuccess: (data) => {
       const mode = data.data.Meta.mode;
       const title = mode === 'scan' ? "🔍 Scan Complete" : "✅ Remediation Executed";
-      
-      toast({ title: title, description: data.data.Details, duration: 5000 });
+      toast({ title: title, description: "System updated. Checking results...", duration: 3000 });
       queryClient.invalidateQueries({ queryKey: ["securityStats"] });
       queryClient.invalidateQueries({ queryKey: ["latestStatus"] });
+      queryClient.invalidateQueries({ queryKey: ["activity-logs"] });
     },
     onError: (error) => {
       toast({ title: "❌ Error", description: error.message, variant: "destructive" });
     },
   });
 
-  // Dynamic Pillars
   const pillars = [
     {
       id: "storage",
       name: "Storage Security",
       icon: <Database className="h-4 w-4" />,
-      status: findings.s3_public ? "critical" : "secure",
-      detail: findings.s3_public ? "Public Access Detected" : "Buckets Private",
-      // Granular Fix Button
-      action: findings.s3_public && (
+      status: hasStorageRisk ? "critical" : "secure",
+      detail: hasStorageRisk ? "Potential Misconfiguration" : "Buckets Monitored",
+      action: hasStorageRisk && (
         <Button 
-          variant="outline" size="sm" className="mt-2 h-7 text-[10px] border-red-500/50 hover:bg-red-500/10 text-red-400"
+          variant="outline" size="sm" className="mt-2 h-7 text-[10px] border-red-500/50 hover:bg-red-500/10 text-red-400 w-full justify-start"
           onClick={() => mutation.mutate('remediate_storage')}
           disabled={mutation.isPending}
         >
-          <Lock className="h-3 w-3 mr-1" /> Lock Buckets
+          <Lock className="h-3 w-3 mr-2" /> Lock Buckets
         </Button>
       )
     },
@@ -97,16 +100,15 @@ const StatusCard = () => {
       id: "network",
       name: "Network Access",
       icon: <Network className="h-4 w-4" />,
-      status: findings.network_open ? "critical" : "secure",
-      detail: findings.network_open ? `${meta.open_sgs?.length} Open Security Groups` : "VPC Locked Down",
-      // Granular Fix Button
-      action: findings.network_open && (
+      status: hasNetworkRisk ? "critical" : "secure",
+      detail: hasNetworkRisk ? `${meta.open_sgs?.length} Open Security Groups` : "VPC Locked Down",
+      action: hasNetworkRisk && (
         <Button 
-          variant="outline" size="sm" className="mt-2 h-7 text-[10px] border-red-500/50 hover:bg-red-500/10 text-red-400"
+          variant="outline" size="sm" className="mt-2 h-7 text-[10px] border-red-500/50 hover:bg-red-500/10 text-red-400 w-full justify-start"
           onClick={() => mutation.mutate('remediate_network')}
           disabled={mutation.isPending}
         >
-          <Wrench className="h-3 w-3 mr-1" /> Close Port 22
+          <Wrench className="h-3 w-3 mr-2" /> Close Port 22
         </Button>
       )
     },
@@ -114,16 +116,15 @@ const StatusCard = () => {
       id: "encryption",
       name: "Data Encryption",
       icon: <FileKey className="h-4 w-4" />,
-      status: findings.encryption_missing ? "warning" : "secure",
-      detail: findings.encryption_missing ? "Unencrypted Resources" : "Data Encrypted",
-      // Granular Fix Button (S3 Only)
+      status: hasEncryptionRisk ? "warning" : "secure",
+      detail: hasEncryptionRisk ? "Unencrypted Resources" : "Data Encrypted",
       action: (meta.unencrypted_count > 0) && (
         <Button 
-          variant="outline" size="sm" className="mt-2 h-7 text-[10px] border-amber-500/50 hover:bg-amber-500/10 text-amber-400"
+          variant="outline" size="sm" className="mt-2 h-7 text-[10px] border-amber-500/50 hover:bg-amber-500/10 text-amber-400 w-full justify-start"
           onClick={() => mutation.mutate('remediate_encryption')}
           disabled={mutation.isPending}
         >
-          <Lock className="h-3 w-3 mr-1" /> Encrypt S3
+          <Lock className="h-3 w-3 mr-2" /> Encrypt S3
         </Button>
       )
     },
@@ -131,9 +132,9 @@ const StatusCard = () => {
       id: "identity",
       name: "Identity (IAM)",
       icon: <User className="h-4 w-4" />,
-      status: findings.iam_risk ? "critical" : "secure",
-      detail: findings.iam_risk ? "Root MFA Missing" : "MFA Enforced",
-      action: findings.iam_risk && (
+      status: hasIamRisk ? "critical" : "secure",
+      detail: hasIamRisk ? "Root MFA Missing" : "MFA Enforced",
+      action: hasIamRisk && (
         <a 
           href="https://console.aws.amazon.com/iam/home#/security_credentials" 
           target="_blank" rel="noopener noreferrer"
@@ -196,14 +197,12 @@ const StatusCard = () => {
                 <span className="text-xs font-mono font-bold uppercase block mb-1">
                   {pillar.detail}
                 </span>
-                {/* Granular Action Button */}
                 {pillar.action}
               </div>
             </div>
           ))}
         </div>
 
-        {/* MAIN CONTROLS */}
         <div className="flex gap-3">
           <Button
             onClick={() => mutation.mutate('scan')}
