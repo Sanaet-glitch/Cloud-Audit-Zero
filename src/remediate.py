@@ -90,26 +90,23 @@ def lambda_handler(event, context):
         # ====================================================
         # PILLAR 2: STORAGE SECURITY (Public Access)
         # ====================================================
-        public_risk_buckets = [] # Found (Scan) or Fixed (Remediate)
+        public_risk_buckets = [] 
         
         for b_name in bucket_names:
-            # 1. CHECK CURRENT STATUS
+            # 1. CHECK STATUS
             is_public = False
             try:
                 pab = s3.get_public_access_block(Bucket=b_name)
                 conf = pab['PublicAccessBlockConfiguration']
-                # It is secure ONLY if all 4 flags are True
                 if not (conf['BlockPublicAcls'] and conf['IgnorePublicAcls'] and conf['BlockPublicPolicy'] and conf['RestrictPublicBuckets']):
                     is_public = True
             except Exception as e:
-                # NoSuchPublicAccessBlockConfiguration means it's wide open
                 if "NoSuchPublicAccessBlockConfiguration" in str(e):
                     is_public = True
             
-            # 2. ACT BASED ON STATUS & MODE
+            # 2. ACT
             if is_public:
                 if mode in ['remediate_all', 'remediate_storage']:
-                    # FIX IT
                     try:
                         s3.put_public_access_block(
                             Bucket=b_name,
@@ -118,12 +115,11 @@ def lambda_handler(event, context):
                                 'BlockPublicPolicy': True, 'RestrictPublicBuckets': True
                             }
                         )
-                        public_risk_buckets.append(b_name) # Log as Fixed
+                        public_risk_buckets.append(b_name)
                     except Exception as e:
                         logger.error(f"Failed to lock bucket {b_name}: {str(e)}")
                 elif mode == 'scan':
-                    # REPORT IT
-                    public_risk_buckets.append(b_name) # Log as Risk
+                    public_risk_buckets.append(b_name)
 
         # ====================================================
         # PILLAR 3: IDENTITY (IAM)
@@ -142,18 +138,34 @@ def lambda_handler(event, context):
             sgs = ec2.describe_security_groups()['SecurityGroups']
             for sg in sgs:
                 for perm in sg.get('IpPermissions', []):
+                    # --- UPDATED DETECTION LOGIC ---
+                    protocol = perm.get('IpProtocol')
                     from_port = perm.get('FromPort')
                     to_port = perm.get('ToPort')
-                    if from_port is not None and to_port is not None:
+                    
+                    is_vulnerable = False
+
+                    # Check 1: All Traffic (-1) -> implicitly includes SSH
+                    if protocol == '-1':
+                        is_vulnerable = True
+                    
+                    # Check 2: Specific Port Range includes 22
+                    elif from_port is not None and to_port is not None:
                         if from_port <= 22 <= to_port:
-                            for ip in perm.get('IpRanges', []):
-                                if ip.get('CidrIp') == '0.0.0.0/0':
-                                    identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
-                                    if mode in ['remediate_all', 'remediate_network']:
-                                        ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
-                                        remediated_sgs.append(identifier)
-                                    else:
-                                        open_sgs.append(identifier)
+                            is_vulnerable = True
+                    
+                    if is_vulnerable:
+                        # Check if exposed to the world (0.0.0.0/0)
+                        for ip in perm.get('IpRanges', []):
+                            if ip.get('CidrIp') == '0.0.0.0/0':
+                                identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
+                                
+                                if mode in ['remediate_all', 'remediate_network']:
+                                    # Fix it by revoking this specific permission rule
+                                    ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
+                                    remediated_sgs.append(identifier)
+                                else:
+                                    open_sgs.append(identifier)
         except Exception as e:
             logger.error(f"Network Scan Error: {str(e)}")
 
@@ -172,20 +184,20 @@ def lambda_handler(event, context):
         if fixed_buckets: details.append(f"FIXED: Encrypted {len(fixed_buckets)} Buckets.")
 
         # 2. Network Report
-        if open_sgs: details.append(f"CRITICAL: Open SSH on {format_list(open_sgs)}.")
-        if remediated_sgs: details.append(f"FIXED: Closed SSH on {len(remediated_sgs)} SGs.")
+        if open_sgs: details.append(f"CRITICAL: Open Access (SSH/All) on {format_list(open_sgs)}.")
+        if remediated_sgs: details.append(f"FIXED: Secured {len(remediated_sgs)} SGs.")
 
         # 3. Identity Report
         if not is_root_secure: details.append("CRITICAL: Root MFA Missing.")
 
-        # 4. Storage Report (Smart Logic)
+        # 4. Storage Report
         if public_risk_buckets:
             if 'remediate' in mode:
                 details.append(f"FIXED: Locked {len(public_risk_buckets)} Public Buckets.")
             else:
                 details.append(f"CRITICAL: Found {len(public_risk_buckets)} Public Buckets.")
 
-        # Logic for Overall Status
+        # Overall Status Logic
         risks_exist = (unencrypted_buckets or unencrypted_rds or open_sgs or not is_root_secure or (mode == 'scan' and public_risk_buckets))
         
         if risks_exist and 'scan' in mode:
