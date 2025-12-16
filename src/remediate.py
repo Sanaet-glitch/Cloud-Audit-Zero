@@ -19,6 +19,7 @@ dynamodb_res = boto3.resource('dynamodb')
 TABLE_NAME = "CloudAuditZeroLogs"
 
 def lambda_handler(event, context):
+    logger.info("v2.0 - Network Logic Upgrade Started") # FORCE UPDATE MARKER
     logger.info(f"Received event: {json.dumps(event)}")
     
     headers = {
@@ -93,7 +94,6 @@ def lambda_handler(event, context):
         public_risk_buckets = [] 
         
         for b_name in bucket_names:
-            # 1. CHECK STATUS
             is_public = False
             try:
                 pab = s3.get_public_access_block(Bucket=b_name)
@@ -104,7 +104,6 @@ def lambda_handler(event, context):
                 if "NoSuchPublicAccessBlockConfiguration" in str(e):
                     is_public = True
             
-            # 2. ACT
             if is_public:
                 if mode in ['remediate_all', 'remediate_storage']:
                     try:
@@ -138,36 +137,47 @@ def lambda_handler(event, context):
             sgs = ec2.describe_security_groups()['SecurityGroups']
             for sg in sgs:
                 for perm in sg.get('IpPermissions', []):
-                    # --- FIX: ROBUST "ALL TRAFFIC" DETECTION ---
+                    # Inspect every rule
                     protocol = perm.get('IpProtocol')
                     from_port = perm.get('FromPort')
                     to_port = perm.get('ToPort')
                     
                     is_risk_rule = False
 
-                    # Condition A: Protocol is "-1" (AWS code for All Traffic)
+                    # 1. Check for "All Traffic" (Protocol -1)
                     if protocol == '-1':
                         is_risk_rule = True
                     
-                    # Condition B: Specific Port Range includes 22 (SSH)
-                    # We utilize elif here so we don't crash on None values from Condition A
+                    # 2. Check for Specific Ports covering 22
                     elif from_port is not None and to_port is not None:
-                        if from_port <= 22 <= to_port:
+                        if int(from_port) <= 22 <= int(to_port):
                             is_risk_rule = True
                     
-                    # If either condition is met, check if it's open to the world
                     if is_risk_rule:
+                        # Check IPv4 (0.0.0.0/0)
                         for ip in perm.get('IpRanges', []):
                             if ip.get('CidrIp') == '0.0.0.0/0':
-                                # WE FOUND A RISK
                                 identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
-                                
                                 if mode in ['remediate_all', 'remediate_network']:
-                                    # Fix it by revoking this specific rule
+                                    logger.warning(f"REVOKING IPv4 Rule on {identifier}")
                                     ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
                                     remediated_sgs.append(identifier)
                                 else:
                                     open_sgs.append(identifier)
+
+                        # Check IPv6 (::/0) - NEW CHECK
+                        for ipv6 in perm.get('Ipv6Ranges', []):
+                            if ipv6.get('CidrIpv6') == '::/0':
+                                identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
+                                if mode in ['remediate_all', 'remediate_network']:
+                                    logger.warning(f"REVOKING IPv6 Rule on {identifier}")
+                                    ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
+                                    if identifier not in remediated_sgs: 
+                                        remediated_sgs.append(identifier)
+                                else:
+                                    if identifier not in open_sgs:
+                                        open_sgs.append(identifier)
+
         except Exception as e:
             logger.error(f"Network Scan Error: {str(e)}")
 
@@ -179,33 +189,38 @@ def lambda_handler(event, context):
         details = []
         status_flag = 'SUCCESS'
 
-        # 1. Encryption Report
+        # 1. Encryption
         if unencrypted_buckets: details.append(f"WARNING: Unencrypted S3: {format_list(unencrypted_buckets)}.")
         if unencrypted_rds: details.append(f"CRITICAL: Unencrypted RDS: {format_list(unencrypted_rds)}.")
         if unencrypted_dynamo: details.append(f"WARNING: Unencrypted DynamoDB: {format_list(unencrypted_dynamo)}.")
         if fixed_buckets: details.append(f"FIXED: Encrypted {len(fixed_buckets)} Buckets.")
 
-        # 2. Network Report
+        # 2. Network
         if open_sgs: details.append(f"CRITICAL: Open Access (SSH/All) on {format_list(open_sgs)}.")
         if remediated_sgs: details.append(f"FIXED: Secured {len(remediated_sgs)} SGs.")
 
-        # 3. Identity Report
+        # 3. Identity
         if not is_root_secure: details.append("CRITICAL: Root MFA Missing.")
 
-        # 4. Storage Report
+        # 4. Storage
         if public_risk_buckets:
             if 'remediate' in mode:
                 details.append(f"FIXED: Locked {len(public_risk_buckets)} Public Buckets.")
             else:
                 details.append(f"CRITICAL: Found {len(public_risk_buckets)} Public Buckets.")
 
-        # Overall Status Logic
-        risks_exist = (unencrypted_buckets or unencrypted_rds or open_sgs or not is_root_secure or (mode == 'scan' and public_risk_buckets))
+        # Overall Status
+        risks_exist = (unencrypted_buckets or unencrypted_rds or unencrypted_dynamo or open_sgs or not is_root_secure or (mode == 'scan' and public_risk_buckets))
         
         if risks_exist and 'scan' in mode:
             status_flag = 'WARNING'
         
-        final_msg = " ".join(details) if details else "All Systems Secure."
+        # Build Message
+        if not details:
+            final_msg = "All Systems Verified Secure." # Explicit Success Message
+        else:
+            final_msg = " ".join(details)
+
         if mode == 'scan': final_msg = "[SCAN] " + final_msg
         else: final_msg = f"[REMEDIATION-{mode.upper().replace('REMEDIATE_', '')}] " + final_msg
 
