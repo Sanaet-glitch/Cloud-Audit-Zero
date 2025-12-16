@@ -136,6 +136,16 @@ resource "aws_iam_policy" "remediate_policy" {
         ]
         Effect   = "Allow"
         Resource = "*"
+      },
+      {
+        # Allow Scanning Databases for Encryption
+        Action = [
+          "rds:DescribeDBInstances",
+          "dynamodb:ListTables",
+          "dynamodb:DescribeTable"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
       }
     ]
   })
