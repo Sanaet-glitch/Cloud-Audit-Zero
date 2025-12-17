@@ -166,7 +166,8 @@ def lambda_handler(event, context):
                                 if mode in ['remediate_all', 'remediate_network']:
                                     logger.warning(f"REVOKING IPv4 Rule on {identifier}")
                                     ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
-                                    remediated_sgs.append(identifier)
+                                    if identifier not in remediated_sgs: 
+                                        remediated_sgs.append(identifier)
                                 else:
                                     if identifier not in open_sgs:
                                         open_sgs.append(identifier)
