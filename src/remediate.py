@@ -249,7 +249,7 @@ def lambda_handler(event, context):
                 'open_buckets': public_risk_buckets if mode == 'scan' else [],
                 'unencrypted_rds': len(unencrypted_rds),
                 'unencrypted_dynamo': len(unencrypted_dynamo),
-                'open_sgs': len(open_sgs),
+                'open_sgs': open_sgs,
                 'remediated_sgs': len(remediated_sgs),
                 'root_mfa_secure': is_root_secure
             }
