@@ -138,53 +138,55 @@ def lambda_handler(event, context):
         try:
             sgs = ec2.describe_security_groups()['SecurityGroups']
             for sg in sgs:
-                for perm in sg.get('IpPermissions', []):
-                    # Inspect every rule
-                    protocol = perm.get('IpProtocol')
-                    from_port = perm.get('FromPort')
-                    to_port = perm.get('ToPort')
-                    
-                    is_risk_rule = False
+                try:
+                    for perm in sg.get('IpPermissions', []):
+                        # Inspect every rule
+                        protocol = perm.get('IpProtocol')
+                        from_port = perm.get('FromPort')
+                        to_port = perm.get('ToPort')
+                        
+                        is_risk_rule = False
 
-                    # 1. Check for "All Traffic" (Protocol -1)
-                    if str(protocol) == '-1':
-                        is_risk_rule = True
-                    
-                    # 2. Check for Specific Ports covering 22
-                    elif from_port is not None and to_port is not None:
-                        try:
-                            if int(from_port) <= 22 <= int(to_port):
-                                is_risk_rule = True
-                        except ValueError:
-                            pass # Skip non-integer ports
-                    
-                    if is_risk_rule:
-                        # Check IPv4 (0.0.0.0/0)
-                        for ip in perm.get('IpRanges', []):
-                            if ip.get('CidrIp') == '0.0.0.0/0':
-                                identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
-                                if mode in ['remediate_all', 'remediate_network']:
-                                    logger.warning(f"REVOKING IPv4 Rule on {identifier}")
-                                    ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
-                                    if identifier not in remediated_sgs: 
-                                        remediated_sgs.append(identifier)
-                                else:
-                                    if identifier not in open_sgs:
-                                        open_sgs.append(identifier)
+                        # 1. Check for "All Traffic" (Protocol -1)
+                        if str(protocol) == '-1':
+                            is_risk_rule = True
+                        
+                        # 2. Check for Specific Ports covering 22
+                        elif from_port is not None and to_port is not None:
+                            try:
+                                if int(from_port) <= 22 <= int(to_port):
+                                    is_risk_rule = True
+                            except ValueError:
+                                pass # Skip non-integer ports
+                        
+                        if is_risk_rule:
+                            # Check IPv4 (0.0.0.0/0)
+                            for ip in perm.get('IpRanges', []):
+                                if ip.get('CidrIp') == '0.0.0.0/0':
+                                    identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
+                                    if mode in ['remediate_all', 'remediate_network']:
+                                        logger.warning(f"REVOKING IPv4 Rule on {identifier}")
+                                        ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
+                                        if identifier not in remediated_sgs: 
+                                            remediated_sgs.append(identifier)
+                                    else:
+                                        if identifier not in open_sgs:
+                                            open_sgs.append(identifier)
 
-                        # Check IPv6 (::/0) - NEW CHECK
-                        for ipv6 in perm.get('Ipv6Ranges', []):
-                            if ipv6.get('CidrIpv6') == '::/0':
-                                identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
-                                if mode in ['remediate_all', 'remediate_network']:
-                                    logger.warning(f"REVOKING IPv6 Rule on {identifier}")
-                                    ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
-                                    if identifier not in remediated_sgs: 
-                                        remediated_sgs.append(identifier)
-                                else:
-                                    if identifier not in open_sgs:
-                                        open_sgs.append(identifier)
-
+                            # Check IPv6 (::/0) - NEW CHECK
+                            for ipv6 in perm.get('Ipv6Ranges', []):
+                                if ipv6.get('CidrIpv6') == '::/0':
+                                    identifier = f"{sg['GroupId']} ({sg.get('GroupName','?')})"
+                                    if mode in ['remediate_all', 'remediate_network']:
+                                        logger.warning(f"REVOKING IPv6 Rule on {identifier}")
+                                        ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
+                                        if identifier not in remediated_sgs: 
+                                            remediated_sgs.append(identifier)
+                                    else:
+                                        if identifier not in open_sgs:
+                                            open_sgs.append(identifier)
+                except Exception as inner_e:
+                    logger.error(f"Error processing SG {sg.get('GroupId')}: {str(inner_e)}")
         except Exception as e:
             logger.error(f"Network Scan Error: {str(e)}")
             network_error = str(e)
