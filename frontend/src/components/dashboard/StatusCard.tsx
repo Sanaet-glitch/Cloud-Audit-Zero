@@ -101,7 +101,16 @@ const StatusCard = () => {
       name: "Network Access",
       icon: <Network className="h-4 w-4" />,
       status: hasNetworkRisk ? "critical" : "secure",
-      detail: hasNetworkRisk ? `${meta.open_sgs?.length} Open Security Groups` : "VPC Locked Down",
+      detail: hasNetworkRisk ? (
+        <div className="flex flex-col gap-1">
+          <span>{meta.open_sgs?.length} Open Security Groups:</span>
+          {Array.isArray(meta.open_sgs) && meta.open_sgs.map((sg: string, i: number) => (
+            <span key={i} className="text-[10px] opacity-80 normal-case block">
+              • {sg}
+            </span>
+          ))}
+        </div>
+      ) : "VPC Locked Down",
       action: hasNetworkRisk && (
         <Button 
           variant="outline" size="sm" className="mt-2 h-7 text-[10px] border-red-500/50 hover:bg-red-500/10 text-red-400 w-full justify-start"
@@ -194,9 +203,9 @@ const StatusCard = () => {
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-sm font-medium text-foreground">{pillar.name}</span>
                 </div>
-                <span className="text-xs font-mono font-bold uppercase block mb-1">
+                <div className="text-xs font-mono font-bold uppercase block mb-1">
                   {pillar.detail}
-                </span>
+                </div>
                 {pillar.action}
               </div>
             </div>
