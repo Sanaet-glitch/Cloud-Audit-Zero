@@ -70,9 +70,11 @@ const StatusCard = () => {
     onSuccess: (data) => {
       const mode = data.data.Meta.mode;
       const title = mode === 'scan' ? "🔍 Scan Complete" : "✅ Remediation Executed";
-      toast({ title: title, description: "System updated. Checking results...", duration: 3000 });
+      toast({ title: title, description: "System updated.", duration: 3000 });
+      // Instead of waiting for a refetch (which might get stale DB data),
+      // we update the UI immediately with the log the backend just gave us.
+      queryClient.setQueryData(["latestStatus"], data.data);
       queryClient.invalidateQueries({ queryKey: ["securityStats"] });
-      queryClient.invalidateQueries({ queryKey: ["latestStatus"] });
       queryClient.invalidateQueries({ queryKey: ["activity-logs"] });
     },
     onError: (error) => {
