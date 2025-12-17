@@ -27,14 +27,8 @@ const triggerEngine = async (action: string): Promise<any> => {
 const fetchLatestStatus = async () => {
   const apiUrl = import.meta.env.VITE_API_URL;
   if (!apiUrl) return null;
-  const response = await fetch(`${apiUrl}/logs?t=${new Date().getTime()}`, {
-    cache: 'no-store',
-    headers: {
-      'Pragma': 'no-cache',
-      'Cache-Control': 'no-cache'
-    }
-  });
-  
+  const response = await fetch(`${apiUrl}/logs?t=${new Date().getTime()}`);
+
   if (!response.ok) return null;
   const json = await response.json();
   const logs = json.data || [];
