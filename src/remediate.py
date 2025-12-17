@@ -168,7 +168,8 @@ def lambda_handler(event, context):
                                     ec2.revoke_security_group_ingress(GroupId=sg['GroupId'], IpPermissions=[perm])
                                     remediated_sgs.append(identifier)
                                 else:
-                                    open_sgs.append(identifier)
+                                    if identifier not in open_sgs:
+                                        open_sgs.append(identifier)
 
                         # Check IPv6 (::/0) - NEW CHECK
                         for ipv6 in perm.get('Ipv6Ranges', []):
