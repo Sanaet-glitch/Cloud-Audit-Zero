@@ -67,13 +67,31 @@ const StatusCard = () => {
 
   const mutation = useMutation({
     mutationFn: triggerEngine,
-    onSuccess: (data) => {
-      const mode = data.data.Meta.mode;
+    onMutate: async () => {
+        // 1. CANCEL POLLING: Stop the background fetch so it doesn't overwrite us mid-update
+        await queryClient.cancelQueries({ queryKey: ["latestStatus"] });
+    },
+    onSuccess: (data, variables) => {
+      const mode = data.data?.Meta?.mode || variables; // fallback if backend response structure varies
       const title = mode === 'scan' ? "🔍 Scan Complete" : "✅ Remediation Executed";
       toast({ title: title, description: "System updated.", duration: 3000 });
-      // Instead of waiting for a refetch (which might get stale DB data),
-      // we update the UI immediately with the log the backend just gave us.
-      queryClient.setQueryData(["latestStatus"], data.data);
+
+      // 2. UPDATE UI INSTANTLY: Trust our mutation response over the DB for now
+      if (data.data) {
+          queryClient.setQueryData(["latestStatus"], data.data);
+      }
+
+      // 3. FIX THE PERSISTENCE ISSUE:
+      // If we just remediated, the DB still has the old "Error" log. 
+      // We must trigger a silent scan to update the DB so the next poll sees "Green".
+      if (variables !== 'scan' && variables.startsWith('remediate')) {
+         // Chain a scan automatically so the DB gets the "Success" log
+         triggerEngine('scan').then((scanData) => {
+             // Update again with the final verified scan result
+             queryClient.setQueryData(["latestStatus"], scanData.data);
+         });
+      }
+      // 4. REFRESH RELATED QUERIES
       queryClient.invalidateQueries({ queryKey: ["securityStats"] });
       queryClient.invalidateQueries({ queryKey: ["activity-logs"] });
     },
