@@ -132,6 +132,8 @@ def lambda_handler(event, context):
         # ====================================================
         open_sgs = []
         remediated_sgs = []
+        network_error = None
+
         
         try:
             sgs = ec2.describe_security_groups()['SecurityGroups']
@@ -145,13 +147,16 @@ def lambda_handler(event, context):
                     is_risk_rule = False
 
                     # 1. Check for "All Traffic" (Protocol -1)
-                    if protocol == '-1':
+                    if str(protocol) == '-1':
                         is_risk_rule = True
                     
                     # 2. Check for Specific Ports covering 22
                     elif from_port is not None and to_port is not None:
-                        if int(from_port) <= 22 <= int(to_port):
-                            is_risk_rule = True
+                        try:
+                            if int(from_port) <= 22 <= int(to_port):
+                                is_risk_rule = True
+                        except ValueError:
+                            pass # Skip non-integer ports
                     
                     if is_risk_rule:
                         # Check IPv4 (0.0.0.0/0)
@@ -180,6 +185,7 @@ def lambda_handler(event, context):
 
         except Exception as e:
             logger.error(f"Network Scan Error: {str(e)}")
+            network_error = str(e)
 
         # ====================================================
         # REPORTING
@@ -198,6 +204,8 @@ def lambda_handler(event, context):
         # 2. Network
         if open_sgs: details.append(f"CRITICAL: Open Access (SSH/All) on {format_list(open_sgs)}.")
         if remediated_sgs: details.append(f"FIXED: Secured {len(remediated_sgs)} SGs.")
+        if network_error: details.append(f"ERROR: Network Scan Failed ({network_error}).")
+        if not open_sgs and not remediated_sgs and not network_error: details.append("Network Secure.")
 
         # 3. Identity
         if not is_root_secure: details.append("CRITICAL: Root MFA Missing.")
