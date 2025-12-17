@@ -50,8 +50,8 @@ const StatusCard = () => {
 
   // --- SMART RISK LOGIC ---
   // We determine risk based on specific findings, not just global status.
-  const hasNetworkRisk = (meta.open_sgs?.length || 0) > 0;
-  const hasEncryptionRisk = (meta.unencrypted_count || 0) > 0 || (meta.unencrypted_rds || 0) > 0;
+  const hasNetworkRisk = Array.isArray(meta.open_sgs) && meta.open_sgs.length > 0;
+  const hasEncryptionRisk = (meta.unencrypted_count || 0) > 0 || (meta.unencrypted_rds || 0) > 0 || (meta.unencrypted_dynamo?.length || 0) > 0;
   const hasIamRisk = meta.root_mfa_secure === false;
   
   // Storage Logic: It is risky ONLY if explicitly flagged in a scan, otherwise we assume monitored/safe
